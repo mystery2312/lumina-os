@@ -1,8 +1,8 @@
 /*
  * lumina-shell : le bureau de LuminaOS.
  *
- * Fond d'ecran, barre d'etat, barre de taches flottante, tiroir
- * d'applications et reglages rapides, dans un seul processus GTK3 +
+ * Fond d'ecran, barre d'etat, etagere, tiroir d'applications et
+ * reglages rapides, dans un seul processus GTK3 +
  * gtk-layer-shell (~25 Mo de RAM). Le compositeur (labwc) gere les
  * fenetres ; ce programme dessine tout ce qui les entoure.
  *
@@ -19,7 +19,7 @@
  * compositeur : sur un vieux GPU non pris en charge, le rendu logiciel
  * direct est bien plus leger que l'emulation 3D.
  */
-#include <gtk/gtk.h>
+#include "lumina-ui.h"
 #include <gtk-layer-shell.h>
 #include <gio/gdesktopappinfo.h>
 #include <gdk/gdkwayland.h>
@@ -31,82 +31,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-/* ------------------------------------------------------------------ */
-/* Palette tonale Material 3, graine #0F7A63                           */
-/* ------------------------------------------------------------------ */
-typedef struct {
-  const char *surface, *c_low, *c, *c_high, *c_top, *on, *on_var, *outline_var,
-             *pri, *on_pri, *pri_c, *on_pri_c, *sec_c, *on_sec_c,
-             *ter, *ter_c, *on_ter_c, *wall_a, *wall_b, *wall_c,
-             *bar_solid;   /* un cran plus fonce que le cadre des fenetres */
-} Palette;
-
-static const Palette LIGHT = {
-  "#f5fbf7", "#eff5f1", "#e9efeb", "#e3eae5", "#dee4e0", "#171d1a", "#404945", "#bfc9c3",
-  "#006b57", "#ffffff", "#a1f2d7", "#002019", "#cde8de", "#06201a",
-  "#4a6179", "#d1e4ff", "#041d33", "#9fd8c4", "#bcd3ef", "#e6efe9", "#d5ddd8" };
-static const Palette DARK = {
-  "#0f1512", "#171d1a", "#1b211e", "#252b28", "#303633", "#dee4e0", "#bfc9c3", "#404945",
-  "#85d6bc", "#00382c", "#005141", "#a1f2d7", "#334b43", "#cde8de",
-  "#b1c8e8", "#324960", "#d1e4ff", "#0e4a3c", "#24364c", "#121a17", "#1d2320" };
-
-static const Palette *P = &LIGHT;
-static gboolean dark = FALSE;
-
-/* Roles de couleur des icones : re-rendues a chaque changement de theme. */
-enum { R_ON, R_ON_VAR, R_PRI, R_TER, R_ON_PRI_C, R_ON_SEC_C, R_ON_TER_C };
-
-static const char *role_color(int r) {
-  switch (r) {
-    case R_ON:       return P->on;
-    case R_ON_VAR:   return P->on_var;
-    case R_ON_PRI_C: return P->on_pri_c;
-    case R_ON_SEC_C: return P->on_sec_c;
-    case R_ON_TER_C: return P->on_ter_c;
-    case R_TER:      return P->ter;
-    default:         return P->pri;
-  }
-}
-
-/* ------------------------------------------------------------------ */
-/* Glyphes 24 px, trait 1.8 : la meme famille que la maquette          */
-/* ------------------------------------------------------------------ */
-typedef struct { const char *name, *svg; } Glyph;
-static const Glyph GLYPHS[] = {
-  {"web",   "<circle cx='12' cy='12' r='9'/><path d='M3 12h18M12 3c2.6 2.8 2.6 15.2 0 18M12 3c-2.6 2.8-2.6 15.2 0 18'/>"},
-  {"files", "<path d='M3 6.5A2.5 2.5 0 0 1 5.5 4h4l2 2.5h7A2.5 2.5 0 0 1 21 9v8.5a2.5 2.5 0 0 1-2.5 2.5h-13A2.5 2.5 0 0 1 3 17.5z'/>"},
-  {"mail",  "<rect x='2.5' y='5' width='19' height='14' rx='2.5'/><path d='m3 7 9 6.2L21 7'/>"},
-  {"store", "<path d='M4.5 8h15l-1.2 11.5a1.8 1.8 0 0 1-1.8 1.5h-9a1.8 1.8 0 0 1-1.8-1.5z'/><path d='M8.5 8a3.5 3.5 0 0 1 7 0'/><path d='M10.5 12.3v4.4l3.8-2.2z' fill='currentColor' stroke='none'/>"},
-  {"set",   "<path d='M4 7h10M18 7h2M4 17h4M12 17h8'/><circle cx='16' cy='7' r='2.2'/><circle cx='10' cy='17' r='2.2'/>"},
-  {"ai",    "<path d='M12 2.8 13.9 9l6.2 1.9-6.2 1.9L12 19l-1.9-6.2L3.9 10.9 10.1 9z'/>"},
-  {"docs",  "<path d='M6 2.5h8l4.5 4.5v14.5H6z'/><path d='M14 2.5V7h4.5M9 12h6M9 15.5h6'/>"},
-  {"cal",   "<rect x='3' y='5' width='18' height='16' rx='2.5'/><path d='M3 10h18M8 2.5v4.5M16 2.5v4.5'/>"},
-  {"photo", "<rect x='3' y='4' width='18' height='16' rx='2.5'/><circle cx='8.8' cy='9.5' r='1.9'/><path d='m3.5 18 5-5 4.5 4.5 3-2.5 4.5 4'/>"},
-  {"vid",   "<rect x='2' y='5' width='20' height='14' rx='4'/><path d='M10.3 9.1v5.8L15.4 12z' fill='currentColor' stroke='none'/>"},
-  {"map",   "<path d='M12 21.5s7-6.1 7-11a7 7 0 1 0-14 0c0 4.9 7 11 7 11z'/><circle cx='12' cy='10.2' r='2.6'/>"},
-  {"drive", "<path d='M9.3 3h5.4l6.3 11H15z'/><path d='M9.3 3 3 14l3 5 6.3-11z'/><path d='M6 19h12l2.9-5H9z'/>"},
-  {"term",  "<rect x='2.5' y='4' width='19' height='16' rx='2.5'/><path d='m7 9.5 3 2.5-3 2.5M12.5 15h4.5'/>"},
-  {"grid",  "<g fill='currentColor' stroke='none'><circle cx='6' cy='6' r='2.2'/><circle cx='12' cy='6' r='2.2'/><circle cx='18' cy='6' r='2.2'/><circle cx='6' cy='12' r='2.2'/><circle cx='12' cy='12' r='2.2'/><circle cx='18' cy='12' r='2.2'/><circle cx='6' cy='18' r='2.2'/><circle cx='12' cy='18' r='2.2'/><circle cx='18' cy='18' r='2.2'/></g>"},
-  {"search","<circle cx='10.5' cy='10.5' r='6.5'/><path d='m15.4 15.4 4.1 4.1'/>"},
-  {"wifi",  "<path d='M12 20.5 1.2 7.6A16.5 16.5 0 0 1 12 3.5c4.1 0 7.9 1.5 10.8 4.1z' fill='currentColor' stroke='none'/>"},
-  {"wifi-off","<path d='M12 20.5 1.2 7.6A16.5 16.5 0 0 1 12 3.5c4.1 0 7.9 1.5 10.8 4.1z'/><path d='m3 3 18 18'/>"},
-  {"wired", "<rect x='8' y='3' width='8' height='6' rx='1.5'/><path d='M12 9v4M5 13h14M5 13v4M19 13v4M12 13v4'/><rect x='3' y='17' width='4' height='4' rx='1'/><rect x='10' y='17' width='4' height='4' rx='1'/><rect x='17' y='17' width='4' height='4' rx='1'/>"},
-  {"moon",  "<path d='M20 14.5A8.5 8.5 0 1 1 9.5 4a7 7 0 0 0 10.5 10.5z'/>"},
-  {"android","<path d='M5 11a7 7 0 0 1 14 0v7H5z'/><path d='m7 5.5-1.5-2M17 5.5l1.5-2'/><circle cx='9.3' cy='8.8' r='.9' fill='currentColor' stroke='none'/><circle cx='14.7' cy='8.8' r='.9' fill='currentColor' stroke='none'/>"},
-  {"sun",   "<circle cx='12' cy='12' r='4'/><path d='M12 2.5v2M12 19.5v2M2.5 12h2M19.5 12h2M5.3 5.3l1.4 1.4M17.3 17.3l1.4 1.4M5.3 18.7l1.4-1.4M17.3 6.7l1.4-1.4'/>"},
-  {"vol",   "<path d='M4 9.5h3.5L12 5v14l-4.5-4.5H4z'/><path d='M15.5 9a4 4 0 0 1 0 6M18 6.5a7.5 7.5 0 0 1 0 11'/>"},
-  {"power", "<path d='M12 3v8'/><path d='M7 6.3a7.5 7.5 0 1 0 10 0'/>"},
-  {"reboot","<path d='M20 11a8 8 0 1 0-2.3 5.7M20 5v6h-6'/>"},
-  {"lock",  "<rect x='5' y='10.5' width='14' height='10' rx='2.5'/><path d='M8 10.5V8a4 4 0 0 1 8 0v2.5'/>"},
-  {"chev",  "<path d='m9 6 6 6-6 6'/>"},
-};
-
-static const char *glyph_svg(const char *name) {
-  for (guint i = 0; i < G_N_ELEMENTS(GLYPHS); i++)
-    if (g_strcmp0(GLYPHS[i].name, name) == 0) return GLYPHS[i].svg;
-  return NULL;
-}
-
 /* Batterie : glyphe genere, le remplissage suit le niveau. */
 static char *battery_svg(int pct) {
   double w = 1.0 + 11.0 * CLAMP(pct, 0, 100) / 100.0;
@@ -114,71 +38,9 @@ static char *battery_svg(int pct) {
                          "<rect x='4' y='9' width='%.1f' height='6' rx='1' fill='currentColor' stroke='none'/>", w);
 }
 
-typedef struct {
-  GtkWidget *img;
-  char *glyph;     /* nom dans GLYPHS, ou "svg:" + corps brut */
-  int role, px;
-} Icon;
-
-static GPtrArray *icons;
-
-static void icon_render(Icon *ic) {
-  const char *body = g_str_has_prefix(ic->glyph, "svg:") ? ic->glyph + 4 : glyph_svg(ic->glyph);
-  if (!body) return;
-  const char *hex = role_color(ic->role);
-  int scale = gtk_widget_get_scale_factor(ic->img);
-  int px = ic->px * scale;
-
-  GString *b = g_string_new(body);
-  g_string_replace(b, "currentColor", hex, 0);
-  char *svg = g_strdup_printf("<svg xmlns='http://www.w3.org/2000/svg' width='%d' height='%d' viewBox='0 0 24 24' "
-                              "fill='none' stroke='%s' stroke-width='1.8' stroke-linecap='round' "
-                              "stroke-linejoin='round'>%s</svg>", px, px, hex, b->str);
-  g_string_free(b, TRUE);
-
-  GdkPixbufLoader *l = gdk_pixbuf_loader_new_with_type("svg", NULL);
-  if (l && gdk_pixbuf_loader_write(l, (const guchar *)svg, strlen(svg), NULL) && gdk_pixbuf_loader_close(l, NULL)) {
-    GdkPixbuf *pb = gdk_pixbuf_loader_get_pixbuf(l);
-    cairo_surface_t *s = gdk_cairo_surface_create_from_pixbuf(pb, scale, NULL);
-    gtk_image_set_from_surface(GTK_IMAGE(ic->img), s);
-    cairo_surface_destroy(s);
-  }
-  if (l) g_object_unref(l);
-  g_free(svg);
-}
-
-/* Le tiroir est reconstruit quand des applis sont installees : une icone
-   detruite doit quitter la liste, sinon le changement de theme la
-   re-rendrait apres liberation. */
-static void icon_destroyed(GtkWidget *w, gpointer d) {
-  Icon *ic = d;
-  g_ptr_array_remove(icons, ic);
-  g_free(ic->glyph); g_free(ic);
-}
-
-static Icon *icon_new(const char *glyph, int role, int px) {
-  Icon *ic = g_new0(Icon, 1);
-  ic->img = gtk_image_new();
-  ic->glyph = g_strdup(glyph);
-  ic->role = role; ic->px = px;
-  gtk_widget_set_size_request(ic->img, px, px);
-  g_ptr_array_add(icons, ic);
-  g_signal_connect(ic->img, "destroy", G_CALLBACK(icon_destroyed), ic);
-  icon_render(ic);
-  return ic;
-}
-
-static void icon_set(Icon *ic, const char *glyph, int role) {
-  if (g_strcmp0(ic->glyph, glyph) == 0 && ic->role == role) return;
-  g_free(ic->glyph); ic->glyph = g_strdup(glyph); ic->role = role;
-  icon_render(ic);
-}
-
 /* ------------------------------------------------------------------ */
 /* Style                                                               */
 /* ------------------------------------------------------------------ */
-static GtkCssProvider *css;
-
 static const char *BASE_CSS =
   "* { font-family: 'Roboto', 'DejaVu Sans', sans-serif; }\n"
   "window.lumina { background: transparent; }\n"
@@ -249,33 +111,6 @@ static const char *BASE_CSS =
   ".pwr { background: @c_high; color: @on; border-radius: 20px; padding: 9px 14px; }\n"
   ".pwr:hover { background: @c_top; }\n";
 
-static void apply_css(void) {
-  GString *s = g_string_new(NULL);
-#define DEF(n, v) g_string_append_printf(s, "@define-color %s %s;\n", n, v)
-  DEF("surface", P->surface); DEF("c_low", P->c_low); DEF("c", P->c); DEF("c_high", P->c_high);
-  DEF("c_top", P->c_top); DEF("on", P->on); DEF("on_var", P->on_var); DEF("outline_var", P->outline_var);
-  DEF("pri", P->pri); DEF("on_pri", P->on_pri); DEF("pri_c", P->pri_c); DEF("on_pri_c", P->on_pri_c);
-  DEF("sec_c", P->sec_c); DEF("on_sec_c", P->on_sec_c); DEF("ter", P->ter); DEF("ter_c", P->ter_c);
-  DEF("on_ter_c", P->on_ter_c); DEF("bar_solid", P->bar_solid);
-#undef DEF
-  g_string_append(s, BASE_CSS);
-  gtk_css_provider_load_from_data(css, s->str, -1, NULL);
-  g_string_free(s, TRUE);
-}
-
-static void add_class(GtkWidget *w, const char *c) { gtk_style_context_add_class(gtk_widget_get_style_context(w), c); }
-static void set_class(GtkWidget *w, const char *c, gboolean on) {
-  GtkStyleContext *sc = gtk_widget_get_style_context(w);
-  if (on) gtk_style_context_add_class(sc, c); else gtk_style_context_remove_class(sc, c);
-}
-
-static GtkWidget *label(const char *text, const char *cls, float xalign) {
-  GtkWidget *l = gtk_label_new(text);
-  gtk_label_set_xalign(GTK_LABEL(l), xalign);
-  if (cls) add_class(l, cls);
-  return l;
-}
-
 /* ------------------------------------------------------------------ */
 /* Petits utilitaires systeme                                          */
 /* ------------------------------------------------------------------ */
@@ -341,11 +176,6 @@ static guint bright_timer, vol_timer;
 /* ------------------------------------------------------------------ */
 /* Fond d'ecran                                                        */
 /* ------------------------------------------------------------------ */
-static void hex_rgb(const char *h, double *r, double *g, double *b) {
-  unsigned v = strtoul(h + 1, NULL, 16);
-  *r = ((v >> 16) & 255) / 255.0; *g = ((v >> 8) & 255) / 255.0; *b = (v & 255) / 255.0;
-}
-
 static void blob(cairo_t *cr, double cx, double cy, double rx, double ry, const char *hex) {
   double r, g, b; hex_rgb(hex, &r, &g, &b);
   cairo_save(cr);
@@ -929,24 +759,14 @@ static void on_wifi_power(GtkButton *b, gpointer d) {
 /* ------------------------------------------------------------------ */
 /* Reglages rapides : theme, Android, curseurs, memoire                 */
 /* ------------------------------------------------------------------ */
-static char *theme_path(void) { return g_build_filename(g_get_user_config_dir(), "lumina", "theme", NULL); }
-
-static void set_dark(gboolean on) {
-  dark = on; P = on ? &DARK : &LIGHT;
-  apply_css();
-  for (guint i = 0; i < icons->len; i++) icon_render(icons->pdata[i]);
-  gtk_widget_queue_draw(wall_area);
-  g_object_set(gtk_settings_get_default(), "gtk-application-prefer-dark-theme", on, NULL);
+/* Theme change (ici ou par une autre appli LuminaOS) : le fond d'ecran et
+   la tuile des reglages rapides suivent. */
+static void on_theme_changed(void) {
+  if (wall_area) gtk_widget_queue_draw(wall_area);
+  if (qs && gtk_widget_get_visible(qs)) refresh_qs();
 }
 
-static void on_dark_tile(GtkButton *b, gpointer d) {
-  set_dark(!dark);
-  char *p = theme_path(), *dir = g_path_get_dirname(p);
-  g_mkdir_with_parents(dir, 0755);
-  g_file_set_contents(p, dark ? "dark\n" : "light\n", -1, NULL);
-  g_free(p); g_free(dir);
-  refresh_qs();
-}
+static void on_dark_tile(GtkButton *b, gpointer d) { lumina_ui_set_dark(!dark); }
 
 static void on_android_tile(GtkButton *b, gpointer d) {
   const char *argv[] = {"lumina-android", NULL};
@@ -1335,6 +1155,44 @@ static char *webapp_window_id(GAppInfo *a) {
   return id;
 }
 
+/* Rapprochement approximatif, quand aucune regle exacte n'a trouve : beaucoup
+   d'applis Linux annoncent une fenetre "mousepad" pour une entree
+   "org.xfce.mousepad.desktop" sans StartupWMClass. On compare le nom de la
+   fenetre au dernier segment de l'identifiant, a l'icone et au programme
+   lance (celui lance DANS le conteneur, pour une appli Distrobox). */
+static gboolean fuzzy_match(GAppInfo *a, const char *app_id) {
+  gboolean hit = FALSE;
+  const char *id = g_app_info_get_id(a);
+  if (id) {
+    char *base = g_strdup(id);
+    if (g_str_has_suffix(base, ".desktop")) base[strlen(base) - 8] = 0;
+    const char *last = strrchr(base, '.');
+    hit = !g_ascii_strcasecmp(last ? last + 1 : base, app_id) ||
+          !g_ascii_strcasecmp(g_str_has_prefix(base, "linux-") ? base + 6 : base, app_id);
+    g_free(base);
+  }
+  char *icon = G_IS_DESKTOP_APP_INFO(a) ? g_desktop_app_info_get_string(G_DESKTOP_APP_INFO(a), "Icon") : NULL;
+  if (!hit && icon) {
+    const char *last = strrchr(icon, '.');
+    hit = !g_ascii_strcasecmp(icon, app_id) || (last && !g_ascii_strcasecmp(last + 1, app_id));
+  }
+  g_free(icon);
+  const char *cmd = g_app_info_get_commandline(a);
+  if (!hit && cmd) {
+    const char *inner = strstr(cmd, " -- ");
+    char *rest = g_strstrip(g_strdup(inner ? inner + 4 : cmd));
+    char **argv = g_strsplit(rest, " ", 2);
+    if (argv[0] && *argv[0]) {
+      char *bn = g_path_get_basename(argv[0]);
+      hit = !g_ascii_strcasecmp(bn, app_id);
+      g_free(bn);
+    }
+    g_strfreev(argv);
+    g_free(rest);
+  }
+  return hit;
+}
+
 /* Appli d'une fenetre, parmi les applis visibles : nom de fenetre d'appli
    web, StartupWMClass, puis identifiant .desktop. Les entrees masquees
    (ex. chromium.desktop, remplacee par "Navigateur") sont ignorees. */
@@ -1348,11 +1206,20 @@ static GDesktopAppInfo *app_for_window(const char *app_id, GList *all) {
     g_free(wid);
     if (hit) return g_object_ref(l->data);
   }
-  char *id = g_strconcat(app_id, ".desktop", NULL);
-  GDesktopAppInfo *a = g_desktop_app_info_new(id);
-  g_free(id);
-  if (a && !g_app_info_should_show(G_APP_INFO(a))) g_clear_object(&a);
-  return a;
+  /* Identifiant .desktop, puis entree publiee depuis le conteneur Linux
+     (Distrobox la nomme "linux-<appli>.desktop"). */
+  const char *forms[] = {"%s.desktop", "linux-%s.desktop"};
+  for (guint i = 0; i < G_N_ELEMENTS(forms); i++) {
+    char *id = g_strdup_printf(forms[i], app_id);
+    GDesktopAppInfo *a = g_desktop_app_info_new(id);
+    g_free(id);
+    if (a && g_app_info_should_show(G_APP_INFO(a))) return a;
+    g_clear_object(&a);
+  }
+  for (GList *l = all; l; l = l->next)
+    if (G_IS_DESKTOP_APP_INFO(l->data) && g_app_info_should_show(l->data) && fuzzy_match(l->data, app_id))
+      return g_object_ref(l->data);
+  return NULL;
 }
 
 static ShelfItem *shelf_find(const char *key) {
@@ -1691,17 +1558,7 @@ static int probe_gl(void) {
 int main(int argc, char **argv) {
   gtk_init(&argc, &argv);
   if (argc > 1 && g_strcmp0(argv[1], "--probe-gl") == 0) return probe_gl();
-  icons = g_ptr_array_new();
-
-  char *tp = theme_path(), *t = read_file(tp);
-  if (g_strcmp0(t, "dark") == 0) { dark = TRUE; P = &DARK; }
-  g_free(tp); g_free(t);
-
-  css = gtk_css_provider_new();
-  apply_css();
-  gtk_style_context_add_provider_for_screen(gdk_screen_get_default(), GTK_STYLE_PROVIDER(css),
-                                            GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
-  g_object_set(gtk_settings_get_default(), "gtk-application-prefer-dark-theme", dark, NULL);
+  lumina_ui_init(BASE_CSS, on_theme_changed);
 
   wifi_dev = find_wifi_dev();
 

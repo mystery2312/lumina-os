@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Terminal
+Comment=Linux (Debian) dans un conteneur, comme sur ChromeOS
+Exec=foot -a lumina-terminal -T Terminal lumina-linux
+StartupWMClass=lumina-terminal
+X-Lumina-Glyph=term
+X-Lumina-Tone=ter
+X-Lumina-Kind=Linux

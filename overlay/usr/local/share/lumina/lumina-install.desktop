@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Installer LuminaOS
+Comment=Installer LuminaOS sur le disque de ce PC
+Exec=lumina-install
+StartupWMClass=lumina-install
+X-Lumina-Glyph=download
+X-Lumina-Tone=pri
+X-Lumina-Kind=Système

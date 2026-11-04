@@ -14,9 +14,13 @@ R="${LUMINA_RENDERER:-auto}"
 export XDG_CURRENT_DESKTOP=lumina:wlroots
 export XKB_DEFAULT_LAYOUT="${LUMINA_KEYMAP:-fr}"
 export GDK_BACKEND=wayland
-# Langue de l'interface. Chromium la lit dans LANGUAGE sous Linux (il
-# ignore --lang). C.UTF-8 existe toujours : pas besoin de generer de locale.
-export LANG=C.UTF-8 LANGUAGE="${LUMINA_LANG:-fr}"
+# Langue de l'interface. Chromium la lit dans LANGUAGE (il ignore --lang) ;
+# les applis GTK dans LANG, via gettext, qui ignore LANGUAGE si LANG=C.
+case "${LUMINA_LANG:-fr}" in
+  fr*) export LANG=fr_FR.UTF-8 ;;
+  *)   export LANG=en_US.UTF-8 ;;
+esac
+export LANGUAGE="${LUMINA_LANG:-fr}"
 
 if [ "$R" = pixman ]; then
   export WLR_RENDERER=pixman

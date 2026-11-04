@@ -1,8 +1,11 @@
 #!/bin/bash
-# Compile lumina-shell sur l'hote. Le binaire ne depend que de GTK3 et
-# gtk-layer-shell, dont l'ABI est stable : compile contre la glibc 2.39
-# d'Ubuntu 24.04, il tourne sur la 2.41 de Debian 13.
+# Compile les programmes LuminaOS (bureau, fichiers, installateur) sur l'hote. Ils ne
+# dependent que de GTK3, gtk-layer-shell et GIO, dont l'ABI est stable :
+# compiles contre la glibc 2.39 d'Ubuntu 24.04, ils tournent sur la 2.41
+# de Debian 13.
 set -euo pipefail
 cd "$(dirname "$0")/.."
-make -s -C src/lumina-shell OUT="$PWD/out/bin/lumina-shell"
-echo ">> lumina-shell : $(du -h out/bin/lumina-shell | cut -f1)"
+for app in lumina-shell lumina-files lumina-install; do
+  make -s -C "src/$app" OUT="$PWD/out/bin/$app"
+  echo ">> $app : $(du -h "out/bin/$app" | cut -f1)"
+done

@@ -6,9 +6,11 @@ OUT    ?= lumina-shell
 GEN    ?= $(dir $(OUT))gen
 PROTO   = protocols/wlr-foreign-toplevel-management-unstable-v1.xml
 
-$(OUT): lumina-shell.c $(GEN)/foreign-toplevel.h $(GEN)/foreign-toplevel.c
+COMMON  = ../common/lumina-ui.c
+
+$(OUT): lumina-shell.c $(COMMON) ../common/lumina-ui.h $(GEN)/foreign-toplevel.h $(GEN)/foreign-toplevel.c
 	mkdir -p $(dir $(OUT))
-	$(CC) $(CFLAGS) -I$(GEN) $$(pkg-config --cflags $(PKGS)) -o $@ lumina-shell.c $(GEN)/foreign-toplevel.c \
+	$(CC) $(CFLAGS) -I$(GEN) -I../common $$(pkg-config --cflags $(PKGS)) -o $@ lumina-shell.c $(COMMON) $(GEN)/foreign-toplevel.c \
 	      $$(pkg-config --libs $(PKGS)) -lm
 	strip $@
 

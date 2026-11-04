@@ -40,6 +40,8 @@ build/vm-run.sh "free -m"              # commande dans la VM (console série)
 build/vm-push.py fichier /chemin/vm    # copie un fichier dans la VM
 build/vm-restart-shell.sh              # relance lumina-shell sans redémarrer
 build/vm-key.sh meta_l-up f11          # touches clavier (agrandir, plein écran…)
+build/vm-click.sh 640 400 droit        # clic souris (gauche, droit, double)
+build/vm-launch.sh lumina-files        # lance une appli dans la session
 ```
 
 Pour voir et utiliser la VM depuis un autre ordinateur, ouvrir un tunnel
@@ -89,6 +91,29 @@ RAM et zram) ; un appareil absent est masqué, jamais simulé.
 - Applis web (Mail, Docs…) : `/usr/local/share/applications/lumina-*.desktop`,
   ouvertes en fenêtre dédiée par un Chromium partagé
 
+### Fichiers, Terminal et Linux
+
+- **Fichiers** (`src/lumina-files`) : gestionnaire de fichiers maison, dans
+  le style Material 3 de l'appli Fichiers d'Android / Aluminium, même
+  palette et même thème que le bureau (`src/common/lumina-ui`). Navigation
+  à gauche (dossiers usuels, clés USB avec éjection, corbeille), chemin en
+  pastilles, recherche, grille ou liste, miniatures d'images, menu clic
+  droit, copier / couper / coller / renommer en arrière-plan, corbeille
+  avec « Annuler » et restauration. Fenêtre aux quatre coins arrondis.
+  Raccourcis : Ctrl+C/X/V, Suppr (Maj+Suppr : définitif), F2, Ctrl+H
+  (fichiers cachés), Ctrl+Maj+N (dossier), Ctrl+F, Alt+←/→/↑. PDF, images,
+  vidéos et musique s'ouvrent dans le navigateur.
+- **Dossier personnel** : `/var/lib/lumina/home`, sur la partition d'état.
+  Les mises à jour A/B remplacent la partition système entière ; les
+  fichiers de l'utilisateur n'y sont donc jamais.
+- **Terminal** (`foot`) : ouvre **Linux**, un conteneur Debian comme
+  Crostini sur ChromeOS (Distrobox + Podman sans privilèges). Installé au
+  premier lancement. On y installe ce qu'on veut avec
+  `sudo apt install …` sans toucher au système LuminaOS. Le dossier
+  personnel est partagé, et les applis graphiques installées apparaissent
+  d'elles-mêmes dans le tiroir (et en disparaissent à la désinstallation).
+  `lumina-linux --remove` supprime le conteneur.
+
 ### Applis installées
 
 Le tiroir se met à jour **en direct**, sans redémarrer la session, et
@@ -109,6 +134,35 @@ affiche l'**icône propre** de chaque appli installée :
 `lumina-shell --probe-gl` le détecte à l'ouverture de session ; Chromium
 passe alors en `--disable-gpu` et le compositeur en rendu `pixman` au
 démarrage suivant. Réglage manuel dans `/etc/lumina/session.conf`.
+
+## Essayer, puis installer
+
+L'image démarre **depuis une clé USB** (16 Go minimum, PC en UEFI, Secure
+Boot désactivé pour l'instant) sans rien modifier sur le PC. Écrire
+l'image sur la clé : Rufus en mode DD ou balenaEtcher (Windows, Mac),
+Etcher ou GNOME Disques (Linux).
+
+Au démarrage sur la clé, une fenêtre propose **Essayer LuminaOS** ou
+**Installer sur ce PC** ; l'appli « Installer LuminaOS » reste dans le
+tiroir tant qu'on tourne depuis la clé. L'installateur (`lumina-install`,
+écriture par `lumina-install-disk`) :
+
+- liste les disques internes avec leur contenu, sans la clé elle-même ;
+- exige une confirmation explicite : **tout le disque choisi est effacé** ;
+- crée ESP 512 Mo + ROOT-A 4 Go + ROOT-B 4 Go + STATE (le reste), avec des
+  identifiants de partitions **tirés au hasard** (la clé et le disque
+  installé ne se confondent jamais au démarrage) ;
+- copie le système (sans les fichiers de l'essai), installe systemd-boot
+  et l'enregistre dans le firmware (`efibootmgr`), avec le chemin de
+  secours `EFI/BOOT/BOOTX64.EFI`.
+
+Une fois installé, l'installateur disparaît (`/etc/lumina/installed`).
+La clé reste utilisable pour essayer ou installer ailleurs.
+
+Tester dans la VM : `LIVE_USB=1 HEADLESS=1 build/30-qemu.sh` branche
+l'image comme une clé USB avec un disque interne vierge de 32 Go ; après
+installation, `INSTALLED=1 HEADLESS=1 build/30-qemu.sh` démarre ce disque
+seul.
 
 ## Disposition du disque (calquée sur ChromeOS)
 
@@ -131,8 +185,9 @@ de machine cassée à distance.
       tiroir, réglages rapides, thème sombre, applis web en fenêtres
 - [x] **M2b** Étagère façon ChromeOS avec applis ouvertes, barre d'état fine
       qui s'opacifie, vraies icônes des applis
-- [ ] **M2c** Coins arrondis en bas des fenêtres (limite de labwc), Chromium
-      qui suit le thème sombre, vrai gestionnaire de fichiers, Bluetooth,
+- [x] **M2c** Fichiers, Terminal, Linux en conteneur façon Crostini
+- [ ] **M2d** Coins arrondis en bas des fenêtres (limite de labwc), Chromium
+      qui suit le thème sombre, Bluetooth,
       boot BIOS pour les netbooks pré-UEFI
 - [ ] **M3** Racine en lecture seule, dm-verity, updater A/B
 - [ ] **M4** Apps Android : lanceur et tiroir prêts, à valider sur une vraie

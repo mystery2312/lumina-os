@@ -1,0 +1,79 @@
+#!/bin/sh
+# Linux facon ChromeOS : un conteneur Debian ou l'on installe ce qu'on veut
+# avec apt, sans toucher au systeme LuminaOS (qui reste intact et peut se
+# mettre a jour en bloc). Distrobox + Podman, sans aucun privilege.
+#
+#   lumina-linux            ouvre un terminal Linux (installe au besoin)
+#   lumina-linux --setup    installe le conteneur
+#   lumina-linux --remove   supprime le conteneur et ses applis
+#
+# Le dossier personnel est partage : les fichiers sont les memes des deux
+# cotes. Les applis graphiques installees avec apt apparaissent seules
+# dans le tiroir de LuminaOS (et en disparaissent a la desinstallation).
+set -eu
+NAME=linux
+IMAGE="${LUMINA_LINUX_IMAGE:-docker.io/library/debian:trixie}"
+
+exists() { podman container exists "$NAME" 2>/dev/null; }
+
+# Script installe dans le conteneur, appele par apt apres chaque
+# installation ou suppression de paquets.
+HOOK='#!/bin/sh
+# Publie dans le tiroir de LuminaOS les applis graphiques du conteneur.
+U=$(getent passwd 1000 | cut -d: -f1); [ -n "$U" ] || exit 0
+H=$(getent passwd 1000 | cut -d: -f6); D="$H/.local/share/applications"
+ex() { runuser -u "$U" -- env HOME="$H" CONTAINER_ID=linux distrobox-export --export-label none "$@" >/dev/null 2>&1 || true; }
+for f in /usr/share/applications/*.desktop; do
+  [ -e "$f" ] || continue
+  grep -qiE "^(NoDisplay|Hidden)=true" "$f" && continue
+  grep -qi "^Terminal=true" "$f" && continue
+  n=$(basename "$f")
+  [ -e "$D/linux-$n" ] || ex --app "$f"
+done
+for e in "$D"/linux-*.desktop; do
+  [ -e "$e" ] || continue
+  n=${e##*/linux-}
+  [ -e "/usr/share/applications/$n" ] || ex --app "/usr/share/applications/$n" --delete
+done
+exit 0'
+
+# Le crochet apt est pose a part et verifie a chaque lancement : si la
+# preparation a ete interrompue (machine eteinte, fenetre fermee...), il est
+# installe au lancement suivant au lieu de manquer pour toujours.
+READY="$HOME/.local/share/lumina/linux-hook-v1"
+install_hook() {
+  [ -e "$READY" ] && return 0
+  printf '%s\n' "$HOOK" | distrobox enter "$NAME" -- sudo sh -c '
+    sed -i -E "s/^# *(fr_FR.UTF-8|en_US.UTF-8) UTF-8/\1 UTF-8/" /etc/locale.gen && locale-gen >/dev/null
+    cat > /usr/local/bin/lumina-export-apps && chmod 755 /usr/local/bin/lumina-export-apps
+    echo "DPkg::Post-Invoke { \"/usr/local/bin/lumina-export-apps\"; };" > /etc/apt/apt.conf.d/99lumina-export'
+  mkdir -p "$(dirname "$READY")" && touch "$READY"
+}
+
+setup() {
+  echo "Installation de Linux (Debian) dans un conteneur."
+  echo "Téléchargement d'environ 250 Mo, puis préparation : quelques minutes."
+  distrobox create --yes --name "$NAME" --image "$IMAGE" --hostname "$NAME" \
+    --additional-packages "sudo locales"
+  install_hook
+  echo "Linux est prêt. Installez des applis avec : sudo apt install <paquet>"
+}
+
+case "${1:-}" in
+  --setup)  exists || setup; install_hook ;;
+  --remove)
+    rm -f "$READY"
+    for e in "$HOME"/.local/share/applications/linux-*.desktop; do [ -e "$e" ] && rm -f "$e"; done
+    distrobox rm --force "$NAME"
+    ;;
+  *)
+    if ! exists; then
+      printf "Linux n'est pas encore installé. L'installer maintenant ? [O/n] "
+      read -r r || r=n
+      case "$r" in [nN]*) exit 0;; esac
+      setup
+    fi
+    install_hook
+    exec distrobox enter "$NAME"
+    ;;
+esac

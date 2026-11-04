@@ -1,0 +1,119 @@
+#!/bin/bash
+# Installe LuminaOS sur un disque interne, depuis la cle USB de demarrage.
+# Lance par l'installateur graphique (lumina-install) via pkexec.
+#
+#   lumina-install-disk /dev/sda
+#
+# TOUT LE DISQUE CIBLE EST EFFACE. Il recoit la meme disposition que
+# l'image : ESP, ROOT-A, ROOT-B (cible des futures mises a jour), STATE.
+# Les identifiants de partitions sont tires au hasard : avec des
+# identifiants fixes, un PC ou LuminaOS est installe et la cle branchee
+# verrait deux systemes identiques et pourrait demarrer sur la cle.
+#
+# Sortie lue par l'interface, une ligne par evenement :
+#   PROGRESS <0-100> <texte>   ERROR <message>   DONE
+set -euo pipefail
+
+TARGET="${1:-}"
+ESP_MB=512
+ROOT_MB=4096
+MIN_BYTES=$((12 * 1024 * 1024 * 1024))
+
+say()  { echo "PROGRESS $1 $2"; }
+fail() { echo "ERROR $*"; exit 1; }
+
+[ "$(id -u)" = 0 ] || fail "L'installation doit être lancée en administrateur."
+# Garde-fou : ce script efface un disque. Il ne fonctionne que depuis une
+# cle de demarrage, jamais sur un LuminaOS deja installe.
+lumina-is-live || fail "LuminaOS doit avoir démarré depuis une clé USB pour être installé."
+[ -b "$TARGET" ] || fail "Disque introuvable : $TARGET"
+[ "$(lsblk -dno TYPE "$TARGET" | tr -d ' ')" = disk ] || fail "$TARGET n'est pas un disque."
+[ "$TARGET" != "$(lumina-is-live --disk)" ] || fail "Impossible d'installer sur la clé de démarrage elle-même."
+[ "$(blockdev --getsize64 "$TARGET")" -ge "$MIN_BYTES" ] || fail "Ce disque est trop petit : il faut au moins 12 Go."
+
+M=$(mktemp -d /run/lumina-install.XXXXXX)
+cleanup() {
+  for d in "$M/esp" "$M/root"; do mountpoint -q "$d" 2>/dev/null && umount "$d"; done
+  rm -rf "$M"
+}
+trap cleanup EXIT
+
+# --- 1. Partitions -----------------------------------------------------------
+say 3 "Préparation du disque"
+for p in $(lsblk -lnpo NAME "$TARGET" | tail -n +2); do umount "$p" 2>/dev/null || true; done
+wipefs -af "$TARGET" >/dev/null
+sgdisk -Z "$TARGET" >/dev/null 2>&1 || true
+
+uuid() { cat /proc/sys/kernel/random/uuid; }
+U_ESP=$(uuid); U_A=$(uuid); U_B=$(uuid); U_S=$(uuid)
+sgdisk \
+  -n "1:1M:+${ESP_MB}M"  -t 1:ef00 -c 1:ESP    -u "1:$U_ESP" \
+  -n "2:0:+${ROOT_MB}M"  -t 2:8304 -c 2:ROOT-A -u "2:$U_A" \
+  -n "3:0:+${ROOT_MB}M"  -t 3:8304 -c 3:ROOT-B -u "3:$U_B" \
+  -n "4:0:0"             -t 4:8300 -c 4:STATE  -u "4:$U_S" \
+  "$TARGET" >/dev/null
+blockdev --rereadpt "$TARGET" 2>/dev/null || true
+udevadm settle
+
+part() { echo "/dev/disk/by-partuuid/$1"; }
+for u in "$U_ESP" "$U_A" "$U_B" "$U_S"; do
+  for _ in $(seq 20); do [ -e "$(part "$u")" ] && break; sleep 0.5; done
+  [ -e "$(part "$u")" ] || fail "Les nouvelles partitions n'apparaissent pas."
+done
+
+# --- 2. Formatage ------------------------------------------------------------
+say 8 "Formatage"
+mkfs.vfat -F 32 -n LUMINA-ESP "$(part "$U_ESP")" >/dev/null
+mkfs.ext4 -q -F -L LUMINA-ROOT  "$(part "$U_A")"
+mkfs.ext4 -q -F -L LUMINA-ROOTB "$(part "$U_B")"
+mkfs.ext4 -q -F -L LUMINA-STATE "$(part "$U_S")"
+
+# --- 3. Copie du systeme -----------------------------------------------------
+# --one-file-system ne copie que la racine : /proc, /sys, /run, /tmp et la
+# partition d'etat de la cle (/var/lib/lumina, avec les fichiers de
+# l'essai) restent en dehors. Le PC demarre donc sur un dossier personnel
+# vierge.
+mkdir -p "$M/root" "$M/esp"
+mount "$(part "$U_A")" "$M/root"
+mount "$(part "$U_ESP")" "$M/esp"
+say 12 "Copie du système"
+rsync -aHAX --one-file-system --numeric-ids --info=progress2 --no-inc-recursive \
+  --exclude=/var/log/journal/* --exclude=/var/cache/apt/* --exclude=/var/tmp/* --exclude=/tmp/* \
+  / "$M/root/" \
+  | tr '\r' '\n' \
+  | awk '{ for (i = 1; i <= NF; i++) if ($i ~ /^[0-9]+%$/) { p = int($i);
+           if (p != last) { print "PROGRESS " 12 + int(p * 0.72) " Copie du système"; fflush(); last = p } } }'
+
+# --- 4. Configuration du systeme installe ------------------------------------
+say 86 "Configuration"
+echo "PARTUUID=$U_S /var/lib/lumina ext4 defaults,noatime,nofail 0 2" > "$M/root/etc/fstab"
+mkdir -p "$M/root/etc/lumina"
+date -u +%Y-%m-%dT%H:%M:%SZ > "$M/root/etc/lumina/installed"   # lu par lumina-is-live
+
+# --- 5. Demarrage ------------------------------------------------------------
+say 90 "Installation du démarrage"
+KVER=$(uname -r)
+EFI=/usr/lib/systemd/boot/efi/systemd-bootx64.efi
+mkdir -p "$M/esp/EFI/BOOT" "$M/esp/EFI/systemd" "$M/esp/loader/entries"
+# Chemin de secours (BOOTX64.EFI) : demarre meme si le firmware oublie
+# l'entree ci-dessous ; chemin nomme pour l'entree du firmware.
+cp "$EFI" "$M/esp/EFI/BOOT/BOOTX64.EFI"
+cp "$EFI" "$M/esp/EFI/systemd/systemd-bootx64.efi"
+cp "/boot/vmlinuz-$KVER" "$M/esp/vmlinuz"
+cp "/boot/initrd.img-$KVER" "$M/esp/initrd.img"
+printf 'default lumina-a.conf\ntimeout 0\neditor no\n' > "$M/esp/loader/loader.conf"
+for x in A:"$U_A" B:"$U_B"; do
+  n=${x%%:*}; u=${x#*:}
+  printf 'title LuminaOS (%s)\nlinux /vmlinuz\ninitrd /initrd.img\noptions root=PARTUUID=%s rw rootwait quiet loglevel=3\n' \
+    "$n" "$u" > "$M/esp/loader/entries/lumina-$(echo "$n" | tr AB ab).conf"
+done
+# Entree "LuminaOS" en tete de l'ordre de demarrage du firmware.
+if [ -d /sys/firmware/efi/efivars ]; then
+  efibootmgr -q -c -d "$TARGET" -p 1 -L "LuminaOS" -l '\EFI\systemd\systemd-bootx64.efi' \
+    || echo "PROGRESS 95 Entrée de démarrage non enregistrée : le PC utilisera le chemin de secours"
+fi
+
+say 98 "Finalisation"
+sync
+echo "PROGRESS 100 LuminaOS est installé"
+echo DONE

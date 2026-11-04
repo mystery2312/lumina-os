@@ -1,0 +1,13 @@
+[Unit]
+Description=Dossier personnel LuminaOS sur la partition d'etat
+# Avant la session : elle demarre DANS ce dossier (WorkingDirectory=~),
+# qui doit donc exister, y compris au premier demarrage d'un disque neuf.
+Wants=var-lib-lumina.mount
+After=var-lib-lumina.mount systemd-tmpfiles-setup.service
+Before=lumina-session.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStartPre=/usr/bin/systemd-tmpfiles --create /etc/tmpfiles.d/lumina.conf
+ExecStart=/usr/local/sbin/lumina-prepare-home

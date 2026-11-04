@@ -5,11 +5,16 @@ set -eu
 
 # Utilisateur de session, sans mot de passe : la machine se verrouille via
 # le compte Google dans le navigateur, pas via une console (modele ChromeOS).
+# Dossier personnel sur la partition d'etat : les mises a jour A/B
+# remplacent la racine entiere, les fichiers de l'utilisateur doivent donc
+# vivre ailleurs : sur la partition d'etat, montee en /home/lumina au
+# demarrage par lumina-prepare-home.service.
 if ! id lumina >/dev/null 2>&1; then
-  useradd -m -s /bin/sh -G video,input,render,audio,netdev lumina
+  useradd -M -d /home/lumina -s /bin/bash -G video,input,render,audio,netdev,plugdev lumina
   passwd -d lumina
 fi
-install -d -o lumina -g lumina /var/lib/lumina /var/lib/lumina/browser
+# Plages d'UID/GID pour les conteneurs sans privileges (Podman).
+grep -q '^lumina:' /etc/subuid || usermod --add-subuids 100000-165535 --add-subgids 100000-165535 lumina
 
 # Un mot de passe root connu, pour le debug en phase de dev.
 # A SUPPRIMER avant toute diffusion de l'image.
@@ -22,6 +27,10 @@ if [ -f /lib/systemd/system/dbus-broker.service ]; then
   systemctl disable dbus.service 2>/dev/null || true
   systemctl enable dbus-broker.service 2>/dev/null || true
 fi
+
+# Langues de l'interface : francais et anglais (une locale ~ 3 Mo).
+sed -i -E 's/^# *(fr_FR.UTF-8|en_US.UTF-8) UTF-8/\1 UTF-8/' /etc/locale.gen
+locale-gen >/dev/null
 
 systemctl set-default graphical.target
 systemctl enable lumina-session.service

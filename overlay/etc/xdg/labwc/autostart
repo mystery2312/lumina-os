@@ -10,5 +10,16 @@ if [ "${GPU:-software}" = software ] && [ "${LUMINA_RENDERER:-auto}" = auto ]; t
 fi
 
 lumina-shell &
+
+# Demarrage sur la cle USB (mode essai) : l'installateur s'ouvre, et reste
+# disponible dans le tiroir. Une fois LuminaOS installe, il disparait.
+APPS="$HOME/.local/share/applications"
+if lumina-is-live; then
+  mkdir -p "$APPS"
+  cp /usr/local/share/lumina/lumina-install.desktop "$APPS/"
+  lumina-install --welcome &
+else
+  rm -f "$APPS/lumina-install.desktop"
+fi
 lumina-fetch-icons &
 [ "${LUMINA_OPEN_BROWSER:-yes}" = yes ] && lumina-browser &

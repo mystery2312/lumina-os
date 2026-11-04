@@ -1,0 +1,6 @@
+# Entree masquee : remplacee par une appli LuminaOS, ou sans usage dans le tiroir.
+[Desktop Entry]
+Type=Application
+Name=footclient
+Exec=true
+NoDisplay=true

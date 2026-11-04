@@ -1,0 +1,19 @@
+# Le navigateur ouvre ce qu'il sait afficher (PDF, images, videos, audio,
+# texte) : pas besoin d'une visionneuse par type de fichier.
+[Default Applications]
+inode/directory=lumina-files.desktop
+text/html=lumina-browser.desktop
+x-scheme-handler/http=lumina-browser.desktop
+x-scheme-handler/https=lumina-browser.desktop
+application/pdf=lumina-browser.desktop
+text/plain=lumina-browser.desktop
+image/png=lumina-browser.desktop
+image/jpeg=lumina-browser.desktop
+image/gif=lumina-browser.desktop
+image/webp=lumina-browser.desktop
+image/svg+xml=lumina-browser.desktop
+video/mp4=lumina-browser.desktop
+video/webm=lumina-browser.desktop
+audio/mpeg=lumina-browser.desktop
+audio/ogg=lumina-browser.desktop
+audio/flac=lumina-browser.desktop

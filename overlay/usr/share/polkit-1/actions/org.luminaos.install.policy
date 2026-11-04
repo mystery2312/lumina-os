@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE policyconfig PUBLIC "-//freedesktop//DTD PolicyKit Policy Configuration 1.0//EN"
+ "http://www.freedesktop.org/standards/PolicyKit/1/policyconfig.dtd">
+<!-- L'utilisateur assis devant la machine (session active) peut lancer
+     l'installation sans mot de passe : quiconque a la cle en main peut de
+     toute facon demarrer n'importe quel systeme. Le script refuse de
+     s'executer ailleurs qu'en mode essai (lumina-is-live). -->
+<policyconfig>
+  <action id="org.luminaos.install">
+    <description>Installer LuminaOS sur un disque</description>
+    <message>L'installation de LuminaOS efface entièrement le disque choisi.</message>
+    <defaults>
+      <allow_any>no</allow_any>
+      <allow_inactive>no</allow_inactive>
+      <allow_active>yes</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/local/sbin/lumina-install-disk</annotate>
+  </action>
+</policyconfig>

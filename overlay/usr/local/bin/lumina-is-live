@@ -1,0 +1,11 @@
+#!/bin/sh
+# Code de sortie 0 si LuminaOS tourne depuis une cle USB (ou tout support
+# amovible) et n'a pas ete installe : c'est le mode "essai", ou l'on
+# propose l'installation.
+#   lumina-is-live          -> 0 en mode essai, 1 sinon
+#   lumina-is-live --disk   -> affiche le disque de demarrage (/dev/sdb...)
+SRC=$(findmnt -no SOURCE /)
+DISK=/dev/$(lsblk -no PKNAME "$SRC" | head -1 | tr -d ' ')
+if [ "${1:-}" = --disk ]; then echo "$DISK"; exit 0; fi
+[ -e /etc/lumina/installed ] && exit 1
+[ "$(lsblk -dno RM "$DISK" | tr -d ' ')" = 1 ] || [ "$(lsblk -dno TRAN "$DISK" | tr -d ' ')" = usb ]

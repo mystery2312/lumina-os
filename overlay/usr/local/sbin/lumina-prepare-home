@@ -1,0 +1,51 @@
+#!/bin/sh
+# Lance (en root) par lumina-prepare-home.service, avant la session.
+#
+# Les fichiers de l'utilisateur vivent sur la partition d'etat
+# (/var/lib/lumina/home), que les mises a jour A/B ne touchent pas. Ils sont
+# montes a l'emplacement standard /home/lumina, ou les applis et scripts
+# Linux s'attendent a les trouver.
+set -eu
+DATA=/var/lib/lumina/home
+H=/home/lumina
+
+# Premier demarrage d'un disque neuf : dossier cree depuis /etc/skel.
+if [ ! -d "$DATA" ]; then
+  cp -a /etc/skel "$DATA"
+  chown -R lumina:lumina "$DATA"
+  chmod 700 "$DATA"
+fi
+install -d -m 755 /home
+[ -d "$H" ] || install -d -o lumina -g lumina -m 700 "$H"
+mountpoint -q "$H" || mount --bind "$DATA" "$H"
+
+# Dossiers usuels en francais. Chromium y range ses telechargements ;
+# le gestionnaire de fichiers les affiche en raccourcis.
+for d in Documents Images Musique Téléchargements Vidéos; do
+  [ -d "$H/$d" ] || install -d -o lumina -g lumina "$H/$d"
+done
+install -d -o lumina -g lumina "$H/.config" "$H/.config/gtk-3.0"
+if [ ! -f "$H/.config/user-dirs.dirs" ]; then
+  cat > "$H/.config/user-dirs.dirs" <<'DIRS'
+XDG_DESKTOP_DIR="$HOME"
+XDG_DOWNLOAD_DIR="$HOME/Téléchargements"
+XDG_DOCUMENTS_DIR="$HOME/Documents"
+XDG_PICTURES_DIR="$HOME/Images"
+XDG_MUSIC_DIR="$HOME/Musique"
+XDG_VIDEOS_DIR="$HOME/Vidéos"
+XDG_TEMPLATES_DIR="$HOME"
+XDG_PUBLICSHARE_DIR="$HOME"
+DIRS
+  chown lumina:lumina "$H/.config/user-dirs.dirs"
+fi
+# Raccourcis du panneau lateral (format GTK, adresses encodees).
+if [ ! -f "$H/.config/gtk-3.0/bookmarks" ]; then
+  cat > "$H/.config/gtk-3.0/bookmarks" <<'BM'
+file:///home/lumina/T%C3%A9l%C3%A9chargements Téléchargements
+file:///home/lumina/Documents Documents
+file:///home/lumina/Images Images
+file:///home/lumina/Musique Musique
+file:///home/lumina/Vid%C3%A9os Vidéos
+BM
+  chown lumina:lumina "$H/.config/gtk-3.0/bookmarks"
+fi

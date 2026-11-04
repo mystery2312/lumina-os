@@ -26,6 +26,34 @@ chromium
 # traductions de l'interface (on ne garde que fr et en-US, cf. lumina-setup)
 chromium-l10n
 
+# --- Fichiers, terminal et Linux facon ChromeOS ----------------------
+# Fichiers : lumina-files (src/). gvfs + udisks2 : corbeille, cles USB.
+gvfs
+gvfs-daemons
+udisks2
+adwaita-icon-theme
+# foot : terminal Wayland le plus leger (< 10 Mo)
+foot
+# Linux dans un conteneur Debian, comme Crostini sur ChromeOS :
+# Distrobox + Podman sans privileges. Rien ne tourne tant qu'on ne s'en
+# sert pas ; les applis graphiques installees dedans arrivent dans le tiroir.
+podman
+distrobox
+uidmap
+passt
+fuse-overlayfs
+# Xwayland, demarre seulement a l'ouverture d'une appli X11 du conteneur
+xwayland
+
+# --- Installation sur disque (depuis la cle USB) --------------------
+# lumina-install (src/) + lumina-install-disk ; pkexec pour ecrire le
+# disque depuis la session, efibootmgr pour l'entree du firmware.
+pkexec
+rsync
+gdisk
+efibootmgr
+systemd-boot-efi
+
 # --- Reseau : iwd + networkd (~8 Mo contre ~60 pour NetworkManager) ---
 iwd
 iproute2
@@ -41,6 +69,10 @@ zram-tools
 pipewire
 pipewire-pulse
 wireplumber
+
+# --- Langue : fr_FR.UTF-8 genere (les applis GTK traduisent via gettext,
+# qui ignore LANGUAGE quand la locale est C)
+locales
 
 # --- Outils de survie / debug -----------------------------------------
 e2fsprogs
