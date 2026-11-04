@@ -209,7 +209,7 @@ build/40-release.sh --publish       # Release GitHub (refusé si DEV=1)
 
 ```
 p1  ESP      128 Mo  FAT32   systemd-boot + vmlinuz + initrd
-p2  ROOT-A  3072 Mo  ext4    système, monté en lecture seule (jalon M3)
+p2  ROOT-A  3072 Mo  ext4    système (lecture seule et vérifié : jalon M3b)
 p3  ROOT-B  3072 Mo  ext4    cible des mises à jour A/B
 p4  STATE   le reste ext4    /var/lib/lumina : profil, réglages, données
 ```
