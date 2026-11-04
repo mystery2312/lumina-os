@@ -10,6 +10,13 @@
 Un OS de type ChromeOS : le navigateur **est** le système. Cible assumée :
 **2 Go de RAM, CPU Atom/Celeron, eMMC lente**. Qui peut le moins peut le plus.
 
+## Télécharger
+
+Dernière version : **[Releases](https://github.com/mystery2312/lumina-os/releases/latest)**,
+fichier `lumina-os-<version>.img.xz` à écrire sur une clé USB de 16 Go ou
+plus (balenaEtcher, Rufus en mode DD, GNOME Disques). Voir
+[Essayer, puis installer](#essayer-puis-installer).
+
 ## Philosophie
 
 Reproduire les *fonctionnalités* de Google Aluminium — apps Android,
