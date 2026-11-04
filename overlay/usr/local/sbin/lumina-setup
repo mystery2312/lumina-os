@@ -41,6 +41,12 @@ locale-gen >/dev/null
 
 systemctl set-default graphical.target
 systemctl enable lumina-session.service
+# Graine aleatoire ecrite sur l'ESP a chaque demarrage : bloque sysinit.target
+# (lent sur cle USB) pour un gain nul, le noyau a assez d'entropie.
+systemctl mask systemd-boot-random-seed.service
+# Ecran de demarrage : theme LuminaOS, integre a l'initramfs
+plymouth-set-default-theme lumina
+update-initramfs -u -k all
 systemctl enable lumina-mglru.service
 systemctl enable lumina-update.timer
 systemctl enable lumina-boot-ok.service

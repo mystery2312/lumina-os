@@ -6,6 +6,8 @@
 #                                un disque interne vierge (out/disque-pc.img,
 #                                32 Go) : teste l'installateur
 #   INSTALLED=1 ...              demarre seulement ce disque interne
+#   SCREENS=2 ...                deux ecrans (HEADLESS : capture du 2e avec
+#                                build/screenshot.sh fichier.png 1)
 #   HEADLESS=1 build/30-qemu.sh  sans ecran : journal serie dans out/serial.log,
 #                                terminal via build/vm-run.sh, captures via
 #                                build/screenshot.sh, ecran en VNC sur
@@ -61,7 +63,7 @@ fi
 if [ "${HEADLESS:-0}" = "1" ]; then
   rm -f out/qemu-monitor.sock out/qmp.sock out/serial.sock out/serial.log
   ARGS+=(
-    -device virtio-vga -display none
+    -device virtio-vga,id=vga0 -display none
     -vnc 127.0.0.1:0
     -chardev socket,id=s0,path=out/serial.sock,server=on,wait=off,logfile=out/serial.log
     -serial chardev:s0
@@ -70,6 +72,11 @@ if [ "${HEADLESS:-0}" = "1" ]; then
   )
 else
   ARGS+=(-device virtio-vga-gl -display gtk,gl=on)
+fi
+# Deuxieme ecran : une 2e carte graphique (le 2e port de virtio-vga reste
+# eteint sans fenetre QEMU). Capture : build/screenshot.sh f.png 1
+if [ "${SCREENS:-1}" = 2 ] && [ "${HEADLESS:-0}" = 1 ]; then
+  ARGS+=(-device virtio-gpu-pci,id=vga1)
 fi
 echo ">> QEMU : ${RAM} Mo, accel=$ACCEL, headless=${HEADLESS:-0}"
 exec qemu-system-x86_64 "${ARGS[@]}" "$@"

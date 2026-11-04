@@ -127,7 +127,9 @@ static const char *MON_L[] = {"", "janvier", "février", "mars", "avril", "mai",
 /* ------------------------------------------------------------------ */
 /* Etat global                                                         */
 /* ------------------------------------------------------------------ */
-static GtkWidget *wall_area, *drawer, *qs, *scrim;
+static GtkWidget *drawer, *qs, *scrim, *bar_win, *shelf_win;
+/* Un fond d'ecran par ecran branche (fenetres layer-shell) */
+static GPtrArray *walls;
 static GtkWidget *clock_l, *date_l, *tray_btn, *batt_l, *launch_btn;
 static Icon *tray_net_ic, *tray_batt_ic;
 static GtkWidget *search_entry, *flow, *flow_empty, *flow_scroll;
@@ -689,7 +691,7 @@ static void init_portal(void) {
    tuile des reglages rapides, les notifications et les applis abonnees au
    portail (Chromium...) suivent. */
 static void on_theme_changed(void) {
-  if (wall_area) gtk_widget_queue_draw(wall_area);
+  if (walls) for (guint i = 0; i < walls->len; i++) gtk_widget_queue_draw(g_ptr_array_index(walls, i));
   if (qs && gtk_widget_get_visible(qs)) refresh_qs();
   if (portal_bus)
     g_dbus_connection_emit_signal(portal_bus, NULL, "/org/freedesktop/portal/desktop",
@@ -914,16 +916,58 @@ static GtkWidget *slider_row(const char *glyph, GtkWidget **scale_out, GCallback
   return h;
 }
 
-static void build_wallpaper(void) {
-  GtkWidget *w = layer_window(GTK_LAYER_SHELL_LAYER_BACKGROUND, "lumina-wallpaper");
-  anchor(w, TRUE, TRUE, TRUE, TRUE);
-  gtk_layer_set_exclusive_zone(GTK_WINDOW(w), -1);
-  wall_area = gtk_drawing_area_new();
-  gtk_widget_add_events(wall_area, GDK_BUTTON_PRESS_MASK);
-  g_signal_connect(wall_area, "draw", G_CALLBACK(draw_wall), NULL);
-  g_signal_connect(wall_area, "button-press-event", G_CALLBACK(on_scrim_press), NULL);
-  gtk_container_add(GTK_CONTAINER(w), wall_area);
-  gtk_widget_show_all(w);
+/* ------------------------------------------------------------------ */
+/* Plusieurs ecrans (bureau etendu, comme ChromeOS) : un fond d'ecran    */
+/* sur chacun ; barre d'etat, etagere et panneaux sur l'ecran principal */
+/* (le premier : l'ecran integre d'un portable). Tout est replace quand */
+/* un ecran est branche ou debranche.                                   */
+/* ------------------------------------------------------------------ */
+static GdkMonitor *main_monitor(void) {
+  return gdk_display_get_monitor(gdk_display_get_default(), 0);
+}
+
+static void build_wallpapers(void) {
+  if (!walls) walls = g_ptr_array_new_with_free_func((GDestroyNotify)gtk_widget_destroy);
+  g_ptr_array_set_size(walls, 0);
+  GdkDisplay *dpy = gdk_display_get_default();
+  int n = gdk_display_get_n_monitors(dpy);
+  for (int i = 0; i < n; i++) {
+    GtkWidget *w = layer_window(GTK_LAYER_SHELL_LAYER_BACKGROUND, "lumina-wallpaper");
+    gtk_layer_set_monitor(GTK_WINDOW(w), gdk_display_get_monitor(dpy, i));
+    anchor(w, TRUE, TRUE, TRUE, TRUE);
+    gtk_layer_set_exclusive_zone(GTK_WINDOW(w), -1);
+    GtkWidget *area = gtk_drawing_area_new();
+    gtk_widget_add_events(area, GDK_BUTTON_PRESS_MASK);
+    g_signal_connect(area, "draw", G_CALLBACK(draw_wall), NULL);
+    g_signal_connect(area, "button-press-event", G_CALLBACK(on_scrim_press), NULL);
+    gtk_container_add(GTK_CONTAINER(w), area);
+    gtk_widget_show_all(w);
+    g_ptr_array_add(walls, w);
+  }
+}
+
+static gboolean relayout_monitors(gpointer d) {
+  build_wallpapers();
+  GdkMonitor *m = main_monitor();
+  GtkWidget *ws[] = {bar_win, shelf_win, scrim, drawer, qs};
+  for (guint i = 0; i < G_N_ELEMENTS(ws); i++) {
+    if (!ws[i]) continue;
+    gtk_layer_set_monitor(GTK_WINDOW(ws[i]), m);
+    /* Surface perdue avec un ecran debranche : on la recree */
+    if (gtk_widget_get_visible(ws[i]) && (ws[i] == bar_win || ws[i] == shelf_win)) {
+      gtk_widget_hide(ws[i]); gtk_widget_show(ws[i]);
+    }
+  }
+  return G_SOURCE_REMOVE;
+}
+
+static guint relayout_pending;
+static gboolean relayout_cb(gpointer d) { relayout_pending = 0; return relayout_monitors(d); }
+
+static void on_monitors_changed(GdkDisplay *dpy, GdkMonitor *mon, gpointer d) {
+  /* Plusieurs signaux d'affilee au branchement : un seul replacement */
+  if (relayout_pending) g_source_remove(relayout_pending);
+  relayout_pending = g_timeout_add(300, relayout_cb, NULL);
 }
 
 static void on_tray_clicked(GtkButton *b, gpointer d) { toggle_panel(qs); }
@@ -934,7 +978,8 @@ static void on_launch_clicked(GtkButton *b, gpointer d) { toggle_panel(drawer); 
 static GtkWidget *bar_box;
 
 static void build_bar(void) {
-  GtkWidget *w = layer_window(GTK_LAYER_SHELL_LAYER_TOP, "lumina-bar");
+  GtkWidget *w = bar_win = layer_window(GTK_LAYER_SHELL_LAYER_TOP, "lumina-bar");
+  gtk_layer_set_monitor(GTK_WINDOW(w), main_monitor());
   anchor(w, TRUE, FALSE, TRUE, TRUE);
   gtk_layer_auto_exclusive_zone_enable(GTK_WINDOW(w));
   GtkWidget *h = bar_box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
@@ -1305,7 +1350,8 @@ static gboolean refresh_shelf(gpointer d) {
 }
 
 static void build_shelf(void) {
-  GtkWidget *w = layer_window(GTK_LAYER_SHELL_LAYER_TOP, "lumina-shelf");
+  GtkWidget *w = shelf_win = layer_window(GTK_LAYER_SHELL_LAYER_TOP, "lumina-shelf");
+  gtk_layer_set_monitor(GTK_WINDOW(w), main_monitor());
   anchor(w, FALSE, TRUE, TRUE, TRUE);
   gtk_layer_auto_exclusive_zone_enable(GTK_WINDOW(w));
   GtkWidget *h = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
@@ -1322,6 +1368,7 @@ static void build_shelf(void) {
 
 static void build_scrim(void) {
   scrim = layer_window(GTK_LAYER_SHELL_LAYER_OVERLAY, "lumina-scrim");
+  gtk_layer_set_monitor(GTK_WINDOW(scrim), main_monitor());
   anchor(scrim, TRUE, TRUE, TRUE, TRUE);
   gtk_layer_set_exclusive_zone(GTK_WINDOW(scrim), -1);
   GtkWidget *eb = gtk_event_box_new();
@@ -1333,6 +1380,7 @@ static void build_scrim(void) {
 
 static void build_drawer(void) {
   drawer = layer_window(GTK_LAYER_SHELL_LAYER_OVERLAY, "lumina-drawer");
+  gtk_layer_set_monitor(GTK_WINDOW(drawer), main_monitor());
   /* Le lanceur est dans le coin haut gauche : le tiroir s'ouvre dessous. */
   anchor(drawer, TRUE, FALSE, TRUE, FALSE);
   gtk_layer_set_margin(GTK_WINDOW(drawer), GTK_LAYER_SHELL_EDGE_LEFT, -12);
@@ -1382,6 +1430,7 @@ static void build_drawer(void) {
 
 static void build_qs(void) {
   qs = layer_window(GTK_LAYER_SHELL_LAYER_OVERLAY, "lumina-quick-settings");
+  gtk_layer_set_monitor(GTK_WINDOW(qs), main_monitor());
   anchor(qs, TRUE, FALSE, FALSE, TRUE);
   gtk_layer_set_margin(GTK_WINDOW(qs), GTK_LAYER_SHELL_EDGE_TOP, 0);
   gtk_layer_set_margin(GTK_WINDOW(qs), GTK_LAYER_SHELL_EDGE_RIGHT, -12);
@@ -1517,7 +1566,9 @@ int main(int argc, char **argv) {
 
   wifi_dev = net_wifi_device();
 
-  build_wallpaper();
+  build_wallpapers();
+  g_signal_connect(gdk_display_get_default(), "monitor-added", G_CALLBACK(on_monitors_changed), NULL);
+  g_signal_connect(gdk_display_get_default(), "monitor-removed", G_CALLBACK(on_monitors_changed), NULL);
   build_bar();
   build_shelf();
   build_scrim();

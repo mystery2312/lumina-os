@@ -145,7 +145,7 @@ sort-key luminaos
 version  $VERSION
 linux    /lumina-a/vmlinuz
 initrd   /lumina-a/initrd.img
-options  root=PARTUUID=$U_A rw rootwait quiet loglevel=3 panic=10
+options  root=PARTUUID=$U_A $(cat /usr/share/lumina/cmdline)
 EOF
 # PC sans UEFI (ou disque deplace plus tard vers un tel PC) : GRUB.
 if [ -f /usr/lib/grub/i386-pc/boot.img ]; then

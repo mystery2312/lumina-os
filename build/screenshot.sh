@@ -4,7 +4,9 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 OUT="${1:-out/screen.png}"
 rm -f out/screen.ppm
-printf 'screendump %s/out/screen.ppm\n' "$PWD" | socat - UNIX-CONNECT:out/qemu-monitor.sock >/dev/null
+# 2e argument : numero de l'ecran (0, 1...) quand la VM en a plusieurs
+HEAD=""; [ -n "${2:-}" ] && HEAD=" vga$2"
+printf 'screendump %s/out/screen.ppm%s\n' "$PWD" "$HEAD" | socat - UNIX-CONNECT:out/qemu-monitor.sock >/dev/null
 for _ in $(seq 20); do [ -s out/screen.ppm ] && break; sleep 0.3; done
 python3 -c "
 import sys

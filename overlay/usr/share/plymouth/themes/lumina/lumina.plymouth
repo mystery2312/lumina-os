@@ -1,0 +1,8 @@
+[Plymouth Theme]
+Name=LuminaOS
+Description=Logo LuminaOS pendant le demarrage
+ModuleName=script
+
+[script]
+ImageDir=/usr/share/plymouth/themes/lumina
+ScriptFile=/usr/share/plymouth/themes/lumina/lumina.script

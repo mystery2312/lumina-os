@@ -41,7 +41,8 @@ echo ">> noyau $KVER"
 VERSION=$($SUDO cat "$SRC/etc/lumina/version")
 # panic=10 : un systeme qui ne demarre pas redemarre, ce qui decompte les
 # essais d'une nouvelle version (retour automatique a l'ancienne).
-CMDLINE="root=PARTUUID=$UUID_ROOT_A rw rootwait quiet loglevel=3 panic=10 $KERNEL_CMDLINE_EXTRA"
+# Options communes : /usr/share/lumina/cmdline (splash = logo au demarrage).
+CMDLINE="root=PARTUUID=$UUID_ROOT_A $($SUDO cat "$SRC/usr/share/lumina/cmdline") $KERNEL_CMDLINE_EXTRA"
 
 # On recopie noyau et initrd en local : mcopy doit pouvoir les lire.
 $SUDO cp "$SRC/boot/vmlinuz-$KVER" "$W/vmlinuz"

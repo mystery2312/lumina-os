@@ -19,6 +19,17 @@ ESP=$(lsblk -lnpo NAME,PARTLABEL "$DISK" | awk '$2 == "ESP" { print $1 }')
 M=$(mktemp -d /run/lumina-boot-ok.XXXXXX)
 trap 'mountpoint -q "$M" && umount "$M"; rmdir "$M"' EXIT
 mount "$ESP" "$M" || exit 0   # sans effet sur la validation UEFI
+# Options du noyau de CETTE version dans son entree systemd-boot
+UUID=$(lsblk -no PARTUUID "$ROOTSRC" | tr -d ' ')
+EXTRA=$(tr ' ' '\n' < /proc/cmdline | grep -E '^console=' | tr '\n' ' ' || true)
+OPTS="root=PARTUUID=$UUID $(cat /usr/share/lumina/cmdline) $EXTRA"
+for f in "$M"/loader/entries/lumina-$SLOT.conf "$M"/loader/entries/lumina-$SLOT+*.conf; do
+  [ -f "$f" ] || continue
+  grep -qxF "options  ${OPTS% }" "$f" && continue
+  sed "s|^options .*|options  ${OPTS% }|" "$f" > "$f.tmp" && mv "$f.tmp" "$f" || rm -f "$f.tmp"
+done
+[ -d "$M/grub" ] && ! cmp -s /usr/share/lumina/grub.cfg "$M/grub/grub.cfg" \
+  && cp /usr/share/lumina/grub.cfg "$M/grub/grub.cfg"
 if [ -f "$M/grub/grubenv" ]; then
   grub-editenv "$M/grub/grubenv" set good=$SLOT || true
   grub-editenv "$M/grub/grubenv" unset try tries || true

@@ -1,0 +1,18 @@
+#!/bin/sh
+# Plymouth ajoute tous les pilotes graphiques a l'initramfs (~30 Mo) : trop
+# lourd pour l'ESP (deux noyaux A/B) et lent a lire sur une cle USB. Le logo
+# s'affiche tres bien sur le framebuffer du firmware (efifb) ; les vrais
+# pilotes se chargent ensuite depuis le systeme, comme sans Plymouth.
+# Les hooks ne font que lister les modules (__MODULES_TO_ADD), installes
+# apres eux : on retire de cette liste ceux de drivers/gpu.
+PREREQ="plymouth"
+prereqs() { echo "$PREREQ"; }
+case "$1" in prereqs) prereqs; exit 0 ;; esac
+[ -n "${__MODULES_TO_ADD:-}" ] && [ -f "$__MODULES_TO_ADD" ] || exit 0
+GPU=$(find "/lib/modules/${version:?}/kernel/drivers/gpu" -name '*.ko*' 2>/dev/null \
+      | sed 's|.*/||; s|\.ko.*||' | sort -u)
+[ -n "$GPU" ] || exit 0
+printf '%s\n' "$GPU" > "$__MODULES_TO_ADD.gpu"
+grep -vxF -f "$__MODULES_TO_ADD.gpu" "$__MODULES_TO_ADD" > "$__MODULES_TO_ADD.new" || true
+cat "$__MODULES_TO_ADD.new" > "$__MODULES_TO_ADD"
+rm -f "$__MODULES_TO_ADD.gpu" "$__MODULES_TO_ADD.new"

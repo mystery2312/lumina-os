@@ -1,0 +1,1 @@
+rw rootwait quiet loglevel=3 panic=10 splash vt.global_cursor_default=0 rd.udev.log_level=3 rd.systemd.show_status=auto

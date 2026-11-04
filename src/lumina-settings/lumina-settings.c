@@ -849,6 +849,18 @@ static void build_about(void) {
   char *gp = g_build_filename(g_get_user_runtime_dir(), "lumina-gpu", NULL), *gs = read_file(gp);
   row(g, "Affichage", g_strcmp0(gs, "gpu") ? "Rendu logiciel (pas d'accélération 3D)" : "Accélération 3D", NULL, NULL);
   g_free(gp); g_free(gs);
+  /* Diagnostic de lenteur : duree du dernier demarrage et support du
+     systeme (une cle USB 2.0 est bien plus lente qu'un disque interne). */
+  const char *sa[] = {"systemd-analyze", "time", NULL};
+  char *st = run_argv(sa, NULL), *tot = st ? strstr(st, "= ") : NULL;
+  if (tot) { char *e = strchr(tot, '\n'); if (e) *e = 0; tot += 2; }
+  row(g, "Dernier démarrage", tot ? tot : "En cours…", NULL, NULL);
+  g_free(st);
+  const char *lv[] = {"lumina-is-live", NULL};
+  int lst = 1;
+  g_free(run_argv(lv, &lst));
+  int live = lst == 0;
+  row(g, "Système", live ? "Sur la clé USB (mode essai) : plus lent qu'une fois installé" : "Installé sur ce PC", NULL, NULL);
   row(g, "Base", "Debian 13, noyau Linux, Chromium", NULL, NULL);
   GtkWidget *g2 = group(p, NULL);
   row(g2, "Logiciel libre", "LuminaOS est distribué sous licence GPL-3.0.",

@@ -126,10 +126,11 @@ sort-key luminaos
 version  $NEW
 linux    /lumina-$T/vmlinuz
 initrd   /lumina-$T/initrd.img
-options  root=PARTUUID=$TUUID rw rootwait quiet loglevel=3 panic=10 ${EXTRA}
+options  root=PARTUUID=$TUUID $(cat "$M/root/usr/share/lumina/cmdline") ${EXTRA}
 EOF
 # Demarrage BIOS : meme principe, 3 essais (voir /usr/share/lumina/grub.cfg)
 if [ -f "$GENV" ]; then
+  cp "$M/root/usr/share/lumina/grub.cfg" "$M/esp/grub/grub.cfg"
   grub-editenv "$GENV" set "uuid_$T=$TUUID" "extra=${EXTRA% }"
   grub-editenv "$GENV" set try=$T tries=3
 fi

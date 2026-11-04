@@ -63,6 +63,9 @@ shim-signed
 shim-helpers-amd64-signed
 systemd-boot-efi-amd64-signed
 
+# --- Ecran de demarrage (logo LuminaOS, cache les messages de Debian) ---
+plymouth
+
 # --- PC anciens sans UEFI (BIOS) : GRUB, meme logique A/B ---------------
 grub-pc-bin
 grub2-common
@@ -80,6 +83,7 @@ swaylock
 swayidle
 wlopm
 grim
+wlr-randr
 slurp
 mako-notifier
 libnotify-bin
