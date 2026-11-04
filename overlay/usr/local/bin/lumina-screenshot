@@ -1,0 +1,12 @@
+#!/bin/sh
+# Capture d'ecran : Impr = tout l'ecran, Maj + Impr = une zone a choisir.
+# Enregistree dans Images/Captures d'ecran, puis notification.
+DIR="$(xdg-user-dir PICTURES 2>/dev/null || echo "$HOME/Images")/Captures d'écran"
+[ -d "$DIR" ] || mkdir -p "$DIR"
+F="$DIR/Capture du $(date '+%Y-%m-%d à %H.%M.%S').png"
+if [ "${1:-}" = "--zone" ]; then
+  ZONE=$(slurp -b 00000066 -c 85d6bcff -w 2) || exit 0
+  grim -g "$ZONE" "$F"
+else
+  grim "$F"
+fi && notify-send -a "Capture d'écran" -i "$F" "Capture enregistrée" "Dans Images › Captures d'écran"

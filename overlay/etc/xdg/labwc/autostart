@@ -4,6 +4,11 @@
 
 # (le rendu, GPU ou logiciel, est choisi par lumina-session avant labwc)
 lumina-shell &
+# Notifications : mako ne lit pas /etc/xdg, on lui donne sa configuration
+# (sinon il demarrerait a la premiere notification, avec son style par defaut).
+mako -c /etc/xdg/mako/config &
+# ... dans le mode du theme en cours (les changements ensuite : lumina-shell)
+( sleep 2; [ "$(cat "$HOME/.config/lumina/theme" 2>/dev/null)" = dark ] && makoctl mode -s dark ) &
 
 APPS="$HOME/.local/share/applications"
 [ -r /var/lib/lumina/config/account.conf ] && . /var/lib/lumina/config/account.conf

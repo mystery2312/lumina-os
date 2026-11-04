@@ -62,10 +62,14 @@ systemd-boot-efi
 systemd-boot
 zstd
 
-# --- Verrouillage, capture d'ecran -------------------------------------
+# --- Verrouillage, capture d'ecran, notifications ---------------------
 swaylock
 swayidle
 wlopm
+grim
+slurp
+mako-notifier
+libnotify-bin
 
 # --- Bluetooth : le demon ne demarre que si la machine a un adaptateur
 # (ConditionPathIsDirectory=/sys/class/bluetooth) ; casques via PipeWire.

@@ -1,0 +1,23 @@
+# Notifications LuminaOS (mako, demarre a la premiere notification).
+font=Roboto 10
+width=360
+margin=12
+padding=14,16
+border-size=0
+border-radius=16
+default-timeout=6000
+anchor=top-right
+layer=overlay
+max-visible=3
+background-color=#e9efebf5
+text-color=#171d1a
+progress-color=over #a1f2d7
+
+[urgency=critical]
+default-timeout=0
+background-color=#ffdad6f5
+text-color=#410002
+
+[mode=dark]
+background-color=#252b28f5
+text-color=#dee4e0

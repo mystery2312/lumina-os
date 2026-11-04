@@ -24,6 +24,13 @@ if [ "$(cat "${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/lumina-gpu" 2>/dev/null)" = 
   export CHROMIUM_FLAGS="$CHROMIUM_FLAGS --disable-gpu"
 fi
 
+# Theme sombre du systeme : Chromium demarre en sombre (interface et pages
+# compatibles). Il ne suit pas le changement en direct : la bascule
+# s'applique a son prochain demarrage.
+if [ "$(cat "${XDG_CONFIG_HOME:-$HOME/.config}/lumina/theme" 2>/dev/null)" = dark ]; then
+  export CHROMIUM_FLAGS="$CHROMIUM_FLAGS --force-dark-mode"
+fi
+
 # Drapeaux propres a la machine (voir /etc/lumina/browser.conf)
 LUMINA_BROWSER_EXTRA_FLAGS=""
 [ -r /etc/lumina/browser.conf ] && . /etc/lumina/browser.conf

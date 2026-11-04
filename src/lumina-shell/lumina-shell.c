@@ -622,11 +622,81 @@ static void on_wifi_power(GtkButton *b, gpointer d) {
 /* ------------------------------------------------------------------ */
 /* Reglages rapides : theme, Android, curseurs, memoire                 */
 /* ------------------------------------------------------------------ */
-/* Theme change (ici ou par une autre appli LuminaOS) : le fond d'ecran et
-   la tuile des reglages rapides suivent. */
+/* ------------------------------------------------------------------ */
+/* Portail org.freedesktop.portal.Settings (theme clair/sombre)          */
+/* Chromium, les applis GTK4/libadwaita et Qt lisent la preference       */
+/* clair/sombre via ce service D-Bus standard et suivent ses changements */
+/* en direct. Le paquet xdg-desktop-portal le fournirait, mais pese      */
+/* plusieurs demons : on n'en implemente que cette cle.                 */
+/* ------------------------------------------------------------------ */
+static GDBusConnection *portal_bus;
+
+static const char PORTAL_XML[] =
+  "<node><interface name='org.freedesktop.portal.Settings'>"
+  "<method name='Read'><arg type='s' direction='in'/><arg type='s' direction='in'/><arg type='v' direction='out'/></method>"
+  "<method name='ReadOne'><arg type='s' direction='in'/><arg type='s' direction='in'/><arg type='v' direction='out'/></method>"
+  "<method name='ReadAll'><arg type='as' direction='in'/><arg type='a{sa{sv}}' direction='out'/></method>"
+  "<signal name='SettingChanged'><arg type='s'/><arg type='s'/><arg type='v'/></signal>"
+  "<property name='version' type='u' access='read'/>"
+  "</interface></node>";
+
+/* color-scheme : 1 = prefere le sombre, 2 = prefere le clair */
+static GVariant *scheme(void) { return g_variant_new_uint32(dark ? 1 : 2); }
+
+static void portal_call(GDBusConnection *c, const char *sender, const char *path, const char *iface,
+                        const char *method, GVariant *params, GDBusMethodInvocation *inv, gpointer d) {
+  if (!strcmp(method, "ReadAll")) {
+    GVariantBuilder all, ns;
+    g_variant_builder_init(&all, G_VARIANT_TYPE("a{sa{sv}}"));
+    g_variant_builder_init(&ns, G_VARIANT_TYPE("a{sv}"));
+    g_variant_builder_add(&ns, "{sv}", "color-scheme", scheme());
+    g_variant_builder_add(&all, "{sa{sv}}", "org.freedesktop.appearance", &ns);
+    g_dbus_method_invocation_return_value(inv, g_variant_new("(a{sa{sv}})", &all));
+    return;
+  }
+  const char *ns = NULL, *key = NULL;
+  g_variant_get(params, "(&s&s)", &ns, &key);
+  if (strcmp(ns, "org.freedesktop.appearance") || strcmp(key, "color-scheme")) {
+    g_dbus_method_invocation_return_dbus_error(inv, "org.freedesktop.portal.Error.NotFound", "Requested setting not found");
+    return;
+  }
+  /* L'ancienne methode Read renvoie la valeur enveloppee deux fois */
+  GVariant *v = !strcmp(method, "Read") ? g_variant_new_variant(scheme()) : scheme();
+  g_dbus_method_invocation_return_value(inv, g_variant_new("(v)", v));
+}
+
+static GVariant *portal_prop(GDBusConnection *c, const char *sender, const char *path, const char *iface,
+                             const char *prop, GError **err, gpointer d) {
+  return g_variant_new_uint32(2);
+}
+
+static const GDBusInterfaceVTable portal_vtable = { portal_call, portal_prop, NULL };
+
+static void on_portal_bus(GDBusConnection *c, const char *name, gpointer d) {
+  GDBusNodeInfo *info = g_dbus_node_info_new_for_xml(PORTAL_XML, NULL);
+  g_dbus_connection_register_object(c, "/org/freedesktop/portal/desktop", info->interfaces[0],
+                                    &portal_vtable, NULL, NULL, NULL);
+  g_dbus_node_info_unref(info);
+  portal_bus = c;
+}
+
+static void init_portal(void) {
+  g_bus_own_name(G_BUS_TYPE_SESSION, "org.freedesktop.portal.Desktop", G_BUS_NAME_OWNER_FLAGS_NONE,
+                 on_portal_bus, NULL, NULL, NULL, NULL);
+}
+
+/* Theme change (ici ou par une autre appli LuminaOS) : le fond d'ecran, la
+   tuile des reglages rapides, les notifications et les applis abonnees au
+   portail (Chromium...) suivent. */
 static void on_theme_changed(void) {
   if (wall_area) gtk_widget_queue_draw(wall_area);
   if (qs && gtk_widget_get_visible(qs)) refresh_qs();
+  if (portal_bus)
+    g_dbus_connection_emit_signal(portal_bus, NULL, "/org/freedesktop/portal/desktop",
+                                  "org.freedesktop.portal.Settings", "SettingChanged",
+                                  g_variant_new("(ssv)", "org.freedesktop.appearance", "color-scheme", scheme()), NULL);
+  const char *argv[] = {"makoctl", "mode", "-s", dark ? "dark" : "default", NULL};
+  spawn_async(argv);
 }
 
 static void on_dark_tile(GtkButton *b, gpointer d) { lumina_ui_set_dark(!dark); }
@@ -1443,6 +1513,7 @@ static void build_qs(void) {
 int main(int argc, char **argv) {
   gtk_init(&argc, &argv);
   lumina_ui_init(BASE_CSS, on_theme_changed);
+  init_portal();
 
   wifi_dev = net_wifi_device();
 
