@@ -54,10 +54,25 @@ minisign -S -s "$KEY" -m "$D/manifest.txt" -t "LuminaOS $VERSION" </dev/null
 minisign -V -q -p overlay/etc/lumina/update.pub -m "$D/manifest.txt"
 echo ">> manifeste signe"
 
+# Image disque complete (cle USB), si elle vient du meme rootfs : xz, lu
+# par balenaEtcher, Rufus, GNOME Disques et Raspberry Pi Imager.
+ASSETS=("$D/manifest.txt" "$D/manifest.txt.minisig" "$ZST")
+DISK_XZ="$D/lumina-os-$VERSION.img.xz"
+if [ -f "$IMAGE" ] && [ "$(cat out/image-version 2>/dev/null)" = "$VERSION" ]; then
+  if [ ! -f "$DISK_XZ" ]; then
+    echo ">> image cle USB (xz)"
+    xz -T0 -6 -c "$IMAGE" > "$DISK_XZ.part" && mv "$DISK_XZ.part" "$DISK_XZ"
+  fi
+  ASSETS+=("$DISK_XZ")
+fi
+( cd "$D" && sha256sum $(for f in "${ASSETS[@]}"; do basename "$f"; done) > SHA256SUMS )
+ASSETS+=("$D/SHA256SUMS")
+ls -lh "${ASSETS[@]}"
+
 if [ "${1:-}" = "--publish" ]; then
   # Une image de developpement a un mot de passe root connu : jamais publiee.
   [ "$BUILD_DEV" = 0 ] || { echo "REFUS : image de developpement (DEV=$BUILD_DEV). Reconstruire avec DEV=0."; exit 1; }
-  gh release create "v$VERSION" "$D/manifest.txt" "$D/manifest.txt.minisig" "$ZST" \
-    --title "LuminaOS $VERSION" --latest \
-    --notes "Mise à jour système LuminaOS $VERSION, installée automatiquement sur les machines LuminaOS."
+  NOTES=${RELEASE_NOTES:-"Mise à jour système LuminaOS $VERSION, installée automatiquement sur les machines LuminaOS."}
+  gh release create "v$VERSION" "${ASSETS[@]}" \
+    --title "${RELEASE_TITLE:-LuminaOS $VERSION}" --latest --notes "$NOTES"
 fi

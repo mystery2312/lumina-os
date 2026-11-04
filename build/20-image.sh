@@ -153,6 +153,7 @@ dd if="$W/root.img"  of="$IMAGE" bs=1M seek=$ROOTA_START conv=notrunc status=non
 dd if="$W/state.img" of="$IMAGE" bs=1M seek=$STATE_START conv=notrunc status=none
 $SUDO rm -rf "$W"
 
+echo "$VERSION" > out/image-version
 echo ">> OK : $IMAGE"
 echo "   taille apparente $(du -h --apparent-size "$IMAGE" | cut -f1), reelle $(du -h "$IMAGE" | cut -f1)"
 sgdisk -p "$IMAGE" | tail -6
