@@ -1,19 +1,29 @@
 # Lance par labwc a l'ouverture de session.
-. /etc/lumina/session.conf 2>/dev/null
+[ -r /etc/lumina/session.conf ] && . /etc/lumina/session.conf
+[ -r "$HOME/.config/lumina/session.conf" ] && . "$HOME/.config/lumina/session.conf"
 
 # (le rendu, GPU ou logiciel, est choisi par lumina-session avant labwc)
 lumina-shell &
 
-# Demarrage sur la cle USB (mode essai) : l'installateur s'ouvre, et reste
-# disponible dans le tiroir. Une fois LuminaOS installe, il disparait.
 APPS="$HOME/.local/share/applications"
+[ -r /var/lib/lumina/config/account.conf ] && . /var/lib/lumina/config/account.conf
 if lumina-is-live; then
+  # Demarrage sur la cle USB (mode essai) : l'installateur s'ouvre, et
+  # reste disponible dans le tiroir. Pas de compte ni de verrouillage.
   mkdir -p "$APPS"
   cp /usr/local/share/lumina/lumina-install.desktop "$APPS/"
   lumina-install --welcome &
 else
   rm -f "$APPS/lumina-install.desktop"
+  if [ "${CONFIGURED:-0}" != 1 ]; then
+    # Premier demarrage apres installation : assistant (langue, clavier,
+    # Wi-Fi, compte). Il lance lui-meme la suite une fois termine.
+    lumina-welcome &
+  else
+    # Session deja configuree : l'ecran de verrouillage sert d'ecran de
+    # connexion (si un mot de passe est defini).
+    lumina-lock
+    lumina-idle &
+    [ "${LUMINA_OPEN_BROWSER:-yes}" = yes ] && lumina-browser &
+  fi
 fi
-lumina-fetch-icons &
-# (sur la cle, l'accueil de l'installateur passe avant le navigateur)
-[ "${LUMINA_OPEN_BROWSER:-yes}" = yes ] && ! lumina-is-live && lumina-browser &

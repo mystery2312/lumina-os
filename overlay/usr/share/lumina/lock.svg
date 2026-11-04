@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1920" height="1080" viewBox="0 0 1920 1080">
+  <!-- Ecran de verrouillage LuminaOS : fond sombre du bureau, logo au-dessus
+       de l'anneau de saisie (dessine par swaylock au centre), consigne
+       dessous. Les elements restent pres du centre : l'image est centree
+       sans redimensionnement, les petits ecrans en voient le milieu. -->
+  <defs>
+    <radialGradient id="a" cx="18%" cy="88%" r="60%"><stop offset="0" stop-color="#0e4a3c"/><stop offset=".7" stop-color="#0e4a3c" stop-opacity="0"/></radialGradient>
+    <radialGradient id="b" cx="88%" cy="12%" r="55%"><stop offset="0" stop-color="#24364c"/><stop offset=".7" stop-color="#24364c" stop-opacity="0"/></radialGradient>
+  </defs>
+  <rect width="1920" height="1080" fill="#0f1512"/>
+  <rect width="1920" height="1080" fill="url(#a)"/>
+  <rect width="1920" height="1080" fill="url(#b)"/>
+  <g transform="translate(924 300) scale(.75)">
+    <path d="M20 62a28 28 0 0 1 56 0z" fill="#d6fff0"/>
+    <rect x="10" y="66" width="76" height="7" rx="3.5" fill="#85d6bc"/>
+    <rect x="26" y="79" width="44" height="6" rx="3" fill="#85d6bc" opacity=".55"/>
+  </g>
+  <text x="960" y="680" text-anchor="middle" font-family="Roboto, DejaVu Sans, sans-serif"
+        font-size="22" fill="#bfc9c3">Saisissez votre mot de passe</text>
+</svg>

@@ -62,6 +62,11 @@ systemd-boot-efi
 systemd-boot
 zstd
 
+# --- Verrouillage, capture d'ecran -------------------------------------
+swaylock
+swayidle
+wlopm
+
 # --- Reseau : iwd + networkd (~8 Mo contre ~60 pour NetworkManager) ---
 iwd
 iproute2

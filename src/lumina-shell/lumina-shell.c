@@ -14,6 +14,7 @@
  * Commande a distance : SIGUSR1 bascule le tiroir, SIGUSR2 les reglages.
  */
 #include "lumina-ui.h"
+#include "lumina-sys.h"
 #include <gtk-layer-shell.h>
 #include <gio/gdesktopappinfo.h>
 #include <gdk/gdkwayland.h>
@@ -111,36 +112,6 @@ static const char *BASE_CSS =
 /* ------------------------------------------------------------------ */
 /* Petits utilitaires systeme                                          */
 /* ------------------------------------------------------------------ */
-static char *read_file(const char *path) {
-  char *c = NULL;
-  if (!g_file_get_contents(path, &c, NULL, NULL)) return NULL;
-  return g_strstrip(c);
-}
-
-/* Les sorties d'iwctl sont colorees : on retire les sequences ANSI. */
-static char *strip_ansi(char *s) {
-  char *r = s, *w = s;
-  while (*r) {
-    if (*r == '\x1b') { r++; if (*r == '[') { r++; while (*r && !g_ascii_isalpha(*r)) r++; if (*r) r++; } continue; }
-    *w++ = *r++;
-  }
-  *w = 0;
-  return s;
-}
-
-static char *run_argv(const char *const *argv, int *status) {
-  char *out = NULL; int st = -1;
-  if (!g_spawn_sync(NULL, (char **)argv, NULL, G_SPAWN_SEARCH_PATH | G_SPAWN_STDERR_TO_DEV_NULL,
-                    NULL, NULL, &out, NULL, &st, NULL)) { g_free(out); out = NULL; }
-  if (status) *status = st;
-  return out ? strip_ansi(out) : NULL;
-}
-
-static void spawn_async(const char *const *argv) {
-  g_spawn_async(NULL, (char **)argv, NULL, G_SPAWN_SEARCH_PATH | G_SPAWN_STDOUT_TO_DEV_NULL |
-                G_SPAWN_STDERR_TO_DEV_NULL, NULL, NULL, NULL, NULL);
-}
-
 static char *fmt_go(double bytes) {               /* 1,12 Go */
   char *s = g_strdup_printf("%.2f Go", bytes / 1073741824.0);
   for (char *p = s; *p; p++) if (*p == '.') *p = ',';
@@ -492,39 +463,6 @@ static void on_apps_changed(GAppInfoMonitor *m, gpointer d) {
 /* ------------------------------------------------------------------ */
 /* Barre d'etat                                                        */
 /* ------------------------------------------------------------------ */
-static gboolean wifi_connected(void) {
-  if (!wifi_dev) return FALSE;
-  char *p = g_strdup_printf("/sys/class/net/%s/operstate", wifi_dev), *s = read_file(p);
-  gboolean up = g_strcmp0(s, "up") == 0;
-  g_free(p); g_free(s);
-  return up;
-}
-
-static gboolean wired_connected(void) {
-  GDir *d = g_dir_open("/sys/class/net", 0, NULL);
-  gboolean up = FALSE;
-  for (const char *n; d && (n = g_dir_read_name(d)) && !up;) {
-    if (g_strcmp0(n, "lo") == 0 || g_strcmp0(n, wifi_dev) == 0) continue;
-    char *p = g_strdup_printf("/sys/class/net/%s/operstate", n), *s = read_file(p);
-    up = g_strcmp0(s, "up") == 0;
-    g_free(p); g_free(s);
-  }
-  if (d) g_dir_close(d);
-  return up;
-}
-
-static char *find_wifi_dev(void) {
-  GDir *d = g_dir_open("/sys/class/net", 0, NULL);
-  char *r = NULL;
-  for (const char *n; d && (n = g_dir_read_name(d)) && !r;) {
-    char *p = g_strdup_printf("/sys/class/net/%s/wireless", n);
-    if (g_file_test(p, G_FILE_TEST_IS_DIR)) r = g_strdup(n);
-    g_free(p);
-  }
-  if (d) g_dir_close(d);
-  return r;
-}
-
 /* Premiere batterie trouvee : -1 si la machine n'en a pas. */
 static int battery(gboolean *charging) {
   GDir *d = g_dir_open("/sys/class/power_supply", 0, NULL);
@@ -557,8 +495,8 @@ static gboolean tick(gpointer d) {
   g_free(t); g_free(ds); g_free(dl); g_date_time_unref(now);
 
   /* Icone reseau : Wi-Fi s'il y a une carte, sinon cable. */
-  if (wifi_dev) icon_set(tray_net_ic, wifi_connected() ? "wifi" : "wifi-off", R_ON);
-  else icon_set(tray_net_ic, wired_connected() ? "wired" : "wifi-off", R_ON);
+  if (wifi_dev) icon_set(tray_net_ic, net_wifi_up(wifi_dev) ? "wifi" : "wifi-off", R_ON);
+  else icon_set(tray_net_ic, net_wired_up(wifi_dev) ? "wired" : "wifi-off", R_ON);
 
   gboolean ch = FALSE;
   int pct = battery(&ch);
@@ -577,70 +515,6 @@ static gboolean tick(gpointer d) {
 /* ------------------------------------------------------------------ */
 /* Reglages rapides : Wi-Fi                                            */
 /* ------------------------------------------------------------------ */
-static gboolean wifi_powered(void) {
-  if (!wifi_dev) return FALSE;
-  const char *argv[] = {"iwctl", "device", wifi_dev, "show", NULL};
-  char *out = run_argv(argv, NULL);
-  gboolean on = FALSE;
-  char **lines = out ? g_strsplit(out, "\n", -1) : NULL;
-  for (char **p = lines; p && *p; p++)
-    if (strstr(*p, "Powered")) on = strstr(*p, " on") != NULL;
-  g_strfreev(lines); g_free(out);
-  return on;
-}
-
-static char *wifi_ssid(void) {
-  if (!wifi_dev) return NULL;
-  const char *argv[] = {"iwctl", "station", wifi_dev, "show", NULL};
-  char *out = run_argv(argv, NULL), *ssid = NULL;
-  if (out) {
-    char **lines = g_strsplit(out, "\n", -1);
-    for (char **p = lines; *p; p++) {
-      char *k = strstr(*p, "Connected network");
-      if (k) { ssid = g_strdup(g_strstrip(k + strlen("Connected network"))); break; }
-    }
-    g_strfreev(lines); g_free(out);
-  }
-  return ssid;
-}
-
-typedef struct { char *ssid, *security; int signal; gboolean current; } Net;
-
-static void net_free(gpointer p) { Net *n = p; g_free(n->ssid); g_free(n->security); g_free(n); }
-
-/* "iwctl station X get-networks" : colonnes nom / securite / signal.
-   Le nom peut contenir des espaces : on lit les deux derniers champs a
-   droite, le reste est le nom. */
-static GPtrArray *wifi_networks(void) {
-  GPtrArray *r = g_ptr_array_new_with_free_func(net_free);
-  if (!wifi_dev) return r;
-  const char *argv[] = {"iwctl", "station", wifi_dev, "get-networks", NULL};
-  char *out = run_argv(argv, NULL);
-  if (!out) return r;
-  char **lines = g_strsplit(out, "\n", -1);
-  for (char **p = lines; *p; p++) {
-    char *l = g_strstrip(*p);
-    if (!*l || strstr(l, "Available networks") || strstr(l, "Network name") || g_str_has_prefix(l, "---") ||
-        strstr(l, "No networks")) continue;
-    gboolean cur = FALSE;
-    if (*l == '>') { cur = TRUE; l = g_strchug(l + 1); }
-    char *sig = strrchr(l, ' ');
-    if (!sig) continue;
-    *sig++ = 0; g_strchomp(l);
-    char *sec = strrchr(l, ' ');
-    if (!sec) continue;
-    *sec++ = 0;
-    Net *n = g_new0(Net, 1);
-    n->ssid = g_strdup(g_strchomp(l));
-    n->security = g_strdup(sec);
-    n->signal = 0; for (char *c = sig; *c; c++) if (*c == '*') n->signal++;
-    n->current = cur;
-    g_ptr_array_add(r, n);
-  }
-  g_strfreev(lines); g_free(out);
-  return r;
-}
-
 static void fill_networks(void);
 
 static void on_connect_done(GObject *src, GAsyncResult *res, gpointer d) {
@@ -661,14 +535,7 @@ static void on_connect_done(GObject *src, GAsyncResult *res, gpointer d) {
 }
 
 static void connect_net(const char *ssid, const char *pass, GtkWidget *pass_box) {
-  GSubprocess *sp;
-  if (pass)
-    sp = g_subprocess_new(G_SUBPROCESS_FLAGS_STDOUT_SILENCE | G_SUBPROCESS_FLAGS_STDERR_SILENCE, NULL,
-                          "iwctl", "--passphrase", pass, "station", wifi_dev, "connect", ssid, NULL);
-  else
-    sp = g_subprocess_new(G_SUBPROCESS_FLAGS_STDOUT_SILENCE | G_SUBPROCESS_FLAGS_STDERR_SILENCE, NULL,
-                          "iwctl", "--dont-ask", "station", wifi_dev, "connect", ssid, NULL);
-  if (sp) g_subprocess_wait_async(sp, NULL, on_connect_done, pass ? NULL : pass_box);
+  net_wifi_connect(wifi_dev, ssid, pass, on_connect_done, pass ? NULL : pass_box);
   gtk_label_set_text(GTK_LABEL(wifi_sub), "Connexion…");
 }
 
@@ -688,11 +555,11 @@ static void fill_networks(void) {
   for (GList *l = kids; l; l = l->next) gtk_widget_destroy(l->data);
   g_list_free(kids);
 
-  gboolean powered = wifi_powered();
+  gboolean powered = net_wifi_powered(wifi_dev);
   gtk_button_set_label(GTK_BUTTON(wifi_power_btn), powered ? "Désactiver le Wi-Fi" : "Activer le Wi-Fi");
   if (!powered) { gtk_container_add(GTK_CONTAINER(nets_box), label("Le Wi-Fi est désactivé.", "hint", 0)); }
   else {
-    GPtrArray *nets = wifi_networks();
+    GPtrArray *nets = net_wifi_list(wifi_dev);
     if (nets->len == 0) gtk_container_add(GTK_CONTAINER(nets_box), label("Recherche des réseaux…", "hint", 0));
     for (guint i = 0; i < nets->len && i < 8; i++) {
       Net *n = nets->pdata[i];
@@ -741,15 +608,13 @@ static void on_wifi_tile(GtkButton *b, gpointer d) {
   gtk_revealer_set_reveal_child(GTK_REVEALER(nets_rev), open);
   if (open) {
     fill_networks();
-    const char *argv[] = {"iwctl", "station", wifi_dev, "scan", NULL};
-    spawn_async(argv);
+    net_wifi_scan(wifi_dev);
     g_timeout_add(3500, rescan_done, NULL);
   }
 }
 
 static void on_wifi_power(GtkButton *b, gpointer d) {
-  const char *argv[] = {"iwctl", "device", wifi_dev, "set-property", "Powered", wifi_powered() ? "off" : "on", NULL};
-  run_argv(argv, NULL);
+  net_wifi_power(wifi_dev, !net_wifi_powered(wifi_dev));
   refresh_qs();
   fill_networks();
 }
@@ -879,8 +744,8 @@ static gboolean mem_tick(gpointer d) { if (gtk_widget_get_visible(qs)) refresh_m
 static void refresh_qs(void) {
   tick(NULL);
   if (wifi_dev) {
-    gboolean on = wifi_powered();
-    char *ssid = on ? wifi_ssid() : NULL;
+    gboolean on = net_wifi_powered(wifi_dev);
+    char *ssid = on ? net_wifi_ssid(wifi_dev) : NULL;
     gtk_label_set_text(GTK_LABEL(wifi_sub), !on ? "Désactivé" : ssid ? ssid : "Non connecté");
     set_class(wifi_tile, "on", ssid != NULL);
     icon_set(wifi_ic, on ? "wifi" : "wifi-off", ssid ? R_ON_PRI_C : R_ON);
@@ -1567,7 +1432,7 @@ int main(int argc, char **argv) {
   gtk_init(&argc, &argv);
   lumina_ui_init(BASE_CSS, on_theme_changed);
 
-  wifi_dev = find_wifi_dev();
+  wifi_dev = net_wifi_device();
 
   build_wallpaper();
   build_bar();

@@ -18,7 +18,7 @@ if [ "$FIRMWARE" = "1" ]; then
   echo ">> firmwares non libres inclus (FIRMWARE=0 pour les exclure)"
 fi
 
-for b in lumina-shell lumina-files lumina-install; do
+for b in $(grep -v '^#' build/apps.list); do
   [ -x "out/bin/$b" ] || { echo "$b absent : lance build/05-shell.sh"; exit 1; }
 done
 # Overlay + binaires empaquetes avec root comme proprietaire : copies tels
@@ -27,7 +27,7 @@ done
 mkdir -p out
 tar --owner=0 --group=0 --numeric-owner --mode=go-w -C overlay -cf out/overlay.tar .
 tar --owner=0 --group=0 --numeric-owner --mode=go-w --transform 's|^|usr/local/bin/|' \
-    -C out/bin -rf out/overlay.tar lumina-shell lumina-files lumina-install
+    -C out/bin -rf out/overlay.tar $(grep -v '^#' build/apps.list)
 if [ "$BUILD_MODE" = "root" ]; then
   SUDO="sudo"; MM_MODE="root"; MM_FORMAT="directory"; TARGET="$ROOTFS_DIR"
   $SUDO rm -rf "$TARGET"; mkdir -p "$TARGET"

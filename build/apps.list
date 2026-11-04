@@ -1,0 +1,5 @@
+# Programmes LuminaOS compiles depuis src/ et installes dans /usr/local/bin
+lumina-shell
+lumina-files
+lumina-install
+lumina-welcome

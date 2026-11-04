@@ -1,0 +1,12 @@
+[Unit]
+Description=Compte LuminaOS (nom et mot de passe conserves sur la partition d'etat)
+# Avant la session et l'ecran de verrouillage : une mise a jour remplace
+# /etc/shadow, on y remet le mot de passe a chaque demarrage.
+Wants=var-lib-lumina.mount
+After=var-lib-lumina.mount
+Before=lumina-session.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/sbin/lumina-account apply

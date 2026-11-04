@@ -34,6 +34,10 @@
     <keybind key="W-a">
       <action name="Execute" command="pkill -USR2 -x lumina-shell" />
     </keybind>
+    <!-- Windows + L : verrouiller -->
+    <keybind key="W-l">
+      <action name="Execute" command="lumina-lock" />
+    </keybind>
     <keybind key="W-Up"><action name="ToggleMaximize" /></keybind>
     <keybind key="W-Left"><action name="SnapToEdge" direction="left" /></keybind>
     <keybind key="W-Right"><action name="SnapToEdge" direction="right" /></keybind>

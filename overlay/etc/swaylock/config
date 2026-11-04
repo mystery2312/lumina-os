@@ -1,0 +1,30 @@
+# Ecran de verrouillage LuminaOS : palette sombre du systeme.
+color=0f1512
+image=/usr/share/lumina/lock.svg
+scaling=center
+# Anneau visible meme sans frappe : on voit ou taper le mot de passe
+indicator-idle-visible
+font=Roboto
+indicator-radius=84
+indicator-thickness=7
+inside-color=1b211e
+inside-clear-color=1b211e
+inside-ver-color=1b211e
+inside-wrong-color=1b211e
+ring-color=005141
+ring-clear-color=b1c8e8
+ring-ver-color=85d6bc
+ring-wrong-color=ffb4ab
+key-hl-color=85d6bc
+bs-hl-color=b1c8e8
+line-color=00000000
+line-clear-color=00000000
+line-ver-color=00000000
+line-wrong-color=00000000
+separator-color=00000000
+text-color=dee4e0
+text-clear-color=dee4e0
+text-ver-color=dee4e0
+text-wrong-color=ffb4ab
+show-failed-attempts
+ignore-empty-password

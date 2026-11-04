@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE policyconfig PUBLIC "-//freedesktop//DTD PolicyKit Policy Configuration 1.0//EN"
+ "http://www.freedesktop.org/standards/PolicyKit/1/policyconfig.dtd">
+<!-- La personne devant la machine regle son propre compte. Changer un mot de
+     passe existant exige l'ancien : c'est lumina-account qui le verifie. -->
+<policyconfig>
+  <action id="org.luminaos.account">
+    <description>Modifier le compte LuminaOS</description>
+    <message>Modifier le nom ou le mot de passe du compte.</message>
+    <defaults>
+      <allow_any>no</allow_any>
+      <allow_inactive>no</allow_inactive>
+      <allow_active>yes</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/local/sbin/lumina-account</annotate>
+  </action>
+</policyconfig>

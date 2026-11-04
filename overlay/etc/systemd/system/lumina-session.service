@@ -1,10 +1,10 @@
 [Unit]
 Description=Session LuminaOS (labwc + lumina-shell)
 After=systemd-user-sessions.service plymouth-quit-wait.service seatd.service
-Wants=seatd.service var-lib-lumina.mount lumina-prepare-home.service
+Wants=seatd.service var-lib-lumina.mount lumina-prepare-home.service lumina-account.service
 # La partition d'etat peut etre lente a monter (fsck au demarrage) : on
 # l'attend, puis on retablit ses droits avant que Chromium n'y ecrive.
-After=var-lib-lumina.mount lumina-prepare-home.service
+After=var-lib-lumina.mount lumina-prepare-home.service lumina-account.service
 Conflicts=getty@tty1.service
 After=getty@tty1.service
 

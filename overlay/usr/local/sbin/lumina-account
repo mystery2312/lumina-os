@@ -1,0 +1,68 @@
+#!/bin/bash
+# Compte de l'utilisateur LuminaOS : nom affiche et mot de passe.
+#
+# Conserves sur la partition d'etat (/var/lib/lumina/config) et reappliques
+# a chaque demarrage (lumina-account.service) : une mise a jour remplace la
+# partition systeme, et avec elle /etc/passwd et /etc/shadow.
+#
+#   lumina-account apply              au demarrage (root)
+#   lumina-account set-name "Nom"     via pkexec
+#   lumina-account set-password       via pkexec ; stdin : ancien puis nouveau
+#                                     mot de passe, un par ligne (nouveau
+#                                     vide = pas de mot de passe)
+#   lumina-account finish             fin de l'assistant de premier demarrage
+#
+# Un mot de passe deja defini ne peut etre change qu'en donnant l'ancien :
+# une appli de la session ne peut pas en imposer un a l'insu de l'utilisateur.
+set -euo pipefail
+export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+U=lumina
+C=/var/lib/lumina/config
+HASH=$C/password.hash      # 0600 root : empreinte du mot de passe
+NAME=$C/name               # 0644 : nom affiche
+ACC=$C/account.conf        # 0644 : CONFIGURED=0|1, HAS_PASSWORD=0|1
+
+mkdir -p "$C"; chmod 755 "$C"
+CONFIGURED=0; HAS_PASSWORD=0
+[ -r "$ACC" ] && . "$ACC"
+save() {
+  printf 'CONFIGURED=%s\nHAS_PASSWORD=%s\n' "$CONFIGURED" "$HAS_PASSWORD" > "$ACC.tmp"
+  chmod 644 "$ACC.tmp"; mv "$ACC.tmp" "$ACC"
+}
+
+case "${1:-}" in
+  apply)
+    if [ -s "$HASH" ]; then usermod -p "$(cat "$HASH")" "$U"; else passwd -d "$U" >/dev/null; fi
+    if [ -s "$NAME" ]; then usermod -c "$(cat "$NAME")" "$U"; fi
+    ;;
+  set-name)
+    n=$(printf '%s' "${2:-}" | tr -d '\n:' | cut -c1-64)
+    printf '%s\n' "$n" > "$NAME"; chmod 644 "$NAME"
+    usermod -c "$n" "$U"
+    ;;
+  set-password)
+    IFS= read -r old || true
+    IFS= read -r new || true
+    if [ "$HAS_PASSWORD" = 1 ] && [ -s "$HASH" ]; then
+      # Verification par la meme fonction crypt() que le systeme. Les mots
+      # de passe passent par l'environnement, jamais par la ligne de
+      # commande (visible de tous dans ps).
+      P="$old" H="$(cat "$HASH")" perl -e 'exit(crypt($ENV{P}, $ENV{H}) eq $ENV{H} ? 0 : 1)' \
+        || { echo "Mot de passe actuel incorrect." >&2; exit 2; }
+    fi
+    if [ -z "$new" ]; then
+      rm -f "$HASH"; passwd -d "$U" >/dev/null; HAS_PASSWORD=0
+    else
+      salt=$(head -c 24 /dev/urandom | base64 | tr -dc 'A-Za-z0-9./' | head -c 16)
+      h=$(P="$new" S="$salt" perl -e 'print crypt($ENV{P}, "\$6\$$ENV{S}\$")')
+      ( umask 077; printf '%s\n' "$h" > "$HASH" )
+      usermod -p "$h" "$U"; HAS_PASSWORD=1
+    fi
+    save
+    ;;
+  finish)
+    CONFIGURED=1; save
+    ;;
+  *)
+    echo "usage : lumina-account apply|set-name NOM|set-password|finish" >&2; exit 1 ;;
+esac

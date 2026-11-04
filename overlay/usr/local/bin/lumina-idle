@@ -1,0 +1,12 @@
+#!/bin/sh
+# Inactivite : verrouillage (si mot de passe), puis ecran eteint ; et
+# verrouillage avant chaque mise en veille (fermeture du capot).
+# Delais en secondes, reglables dans ~/.config/lumina/session.conf.
+[ -r "$HOME/.config/lumina/session.conf" ] && . "$HOME/.config/lumina/session.conf"
+LOCK=${LUMINA_LOCK_DELAY:-300}
+OFF=${LUMINA_SCREEN_OFF_DELAY:-600}
+pkill -x swayidle 2>/dev/null
+exec swayidle -w \
+  timeout "$LOCK" 'lumina-lock' \
+  timeout "$OFF" 'wlopm --off "*"' resume 'wlopm --on "*"' \
+  before-sleep 'lumina-lock'
