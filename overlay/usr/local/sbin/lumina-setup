@@ -13,6 +13,8 @@ if ! id lumina >/dev/null 2>&1; then
   useradd -M -d /home/lumina -s /bin/bash -G video,input,render,audio,netdev,plugdev lumina
   passwd -d lumina
 fi
+# Bluetooth pilotable depuis la session (politique D-Bus de bluez).
+getent group bluetooth >/dev/null && usermod -aG bluetooth lumina
 # Plages d'UID/GID pour les conteneurs sans privileges (Podman).
 grep -q '^lumina:' /etc/subuid || usermod --add-subuids 100000-165535 --add-subgids 100000-165535 lumina
 

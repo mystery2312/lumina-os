@@ -805,6 +805,12 @@ static void on_power(GtkButton *b, gpointer d) {
 /* ------------------------------------------------------------------ */
 /* Construction                                                        */
 /* ------------------------------------------------------------------ */
+static void on_open_settings(GtkButton *b, gpointer d) {
+  close_panels();
+  const char *argv[] = {"lumina-settings", NULL};
+  spawn_async(argv);
+}
+
 static GtkWidget *tile(const char *glyph, const char *title, GtkWidget **sub_out, Icon **ic_out) {
   GtkWidget *b = gtk_button_new();
   add_class(b, "tile");
@@ -1323,6 +1329,12 @@ static void build_qs(void) {
   gtk_widget_set_valign(qs_time, GTK_ALIGN_BASELINE);
   gtk_container_add(GTK_CONTAINER(head), qs_time);
   gtk_container_add(GTK_CONTAINER(head), qs_date);
+  GtkWidget *gear = gtk_button_new();
+  add_class(gear, "tray");
+  gtk_widget_set_tooltip_text(gear, "Tous les réglages");
+  gtk_container_add(GTK_CONTAINER(gear), icon_new("set", R_ON_VAR, 18)->img);
+  g_signal_connect(gear, "clicked", G_CALLBACK(on_open_settings), NULL);
+  gtk_container_add(GTK_CONTAINER(head), gear);
   gtk_container_add(GTK_CONTAINER(v), head);
 
   /* Wi-Fi : tuile pleine largeur, la liste des reseaux se deplie dessous. */

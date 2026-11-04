@@ -67,6 +67,11 @@ swaylock
 swayidle
 wlopm
 
+# --- Bluetooth : le demon ne demarre que si la machine a un adaptateur
+# (ConditionPathIsDirectory=/sys/class/bluetooth) ; casques via PipeWire.
+bluez
+libspa-0.2-bluetooth
+
 # --- Reseau : iwd + networkd (~8 Mo contre ~60 pour NetworkManager) ---
 iwd
 iproute2

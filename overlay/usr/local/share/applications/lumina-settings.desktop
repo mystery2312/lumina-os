@@ -1,7 +1,8 @@
 [Desktop Entry]
 Type=Application
 Name=Réglages
-Exec=pkill -USR2 -x lumina-shell
+Exec=lumina-settings
+StartupWMClass=lumina-settings
 X-Lumina-Glyph=set
 X-Lumina-Tone=sec
 X-Lumina-Kind=Système
