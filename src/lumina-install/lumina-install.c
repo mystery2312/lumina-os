@@ -13,6 +13,8 @@
 #include <string.h>
 #include <stdlib.h>
 #include <sys/wait.h>
+#include <signal.h>
+#include <errno.h>
 
 static const char *CSS =
   "* { font-family: 'Roboto', 'DejaVu Sans', sans-serif; }\n"
@@ -38,6 +40,7 @@ static const char *CSS =
   ".fbtn { background: @pri; color: @on_pri; border-radius: 20px; padding: 10px 22px; font-weight: 500; }\n"
   ".fbtn:disabled { background: alpha(@on, 0.12); color: alpha(@on, 0.38); }\n"
   ".fbtn.danger { background: #ba1a1a; color: #ffffff; }\n"
+  ".fbtn.danger:disabled { background: alpha(@on, 0.12); color: alpha(@on, 0.38); }\n"
   "checkbutton { color: @on; }\n"
   "progressbar trough { background: @c_top; min-height: 8px; border-radius: 4px; border: none; }\n"
   "progressbar progress { background: @pri; min-height: 8px; border-radius: 4px; border: none; }\n"
@@ -50,8 +53,7 @@ static GtkWidget *prog_bar, *prog_step, *end_title, *end_text, *end_hero_box, *e
 static Icon *end_ic;
 static GPtrArray *disks;
 static Disk *chosen;
-static GString *linebuf;
-static gboolean done_ok;
+static gboolean done_ok, touched;
 static char *last_error;
 
 /* ------------------------------------------------------------------ */
@@ -141,11 +143,26 @@ static GtkWidget *hero(const char *glyph, gboolean danger, Icon **ic_out) {
   add_class(b, "hero");
   if (danger) add_class(b, "danger");
   gtk_widget_set_halign(b, GTK_ALIGN_START);
+  gtk_widget_set_valign(b, GTK_ALIGN_START);
+  gtk_widget_set_size_request(b, 72, 72);
   Icon *ic = icon_new(glyph, danger ? R_ON : R_ON_PRI_C, 36);
+  gtk_widget_set_valign(ic->img, GTK_ALIGN_CENTER);
   gtk_widget_set_vexpand(ic->img, TRUE);
+  gtk_widget_set_vexpand(b, FALSE);
   gtk_container_add(GTK_CONTAINER(b), ic->img);
   if (ic_out) *ic_out = ic;
   return b;
+}
+
+/* Logo LuminaOS (Aube), en version claire ou sombre selon le theme. */
+static GtkWidget *logo(int px) {
+  const char *f = dark ? "/usr/share/icons/hicolor/scalable/apps/luminaos-dark.svg"
+                       : "/usr/share/icons/hicolor/scalable/apps/luminaos.svg";
+  GdkPixbuf *pb = gdk_pixbuf_new_from_file_at_size(f, px, px, NULL);
+  GtkWidget *img = pb ? gtk_image_new_from_pixbuf(pb) : gtk_image_new();
+  if (pb) g_object_unref(pb);
+  gtk_widget_set_halign(img, GTK_ALIGN_START);
+  return img;
 }
 
 static GtkWidget *page(void) {
@@ -203,7 +220,7 @@ static void fill_disks(void) {
     gtk_toggle_button_set_mode(GTK_TOGGLE_BUTTON(rb), FALSE);   /* carte cliquable, pas de pastille */
     add_class(rb, "disk");
     GtkWidget *h = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 14);
-    gtk_container_add(GTK_CONTAINER(h), icon_new("usb", R_ON_VAR, 24)->img);
+    gtk_container_add(GTK_CONTAINER(h), icon_new("disk", R_ON_VAR, 24)->img);
     GtkWidget *v = gtk_box_new(GTK_ORIENTATION_VERTICAL, 2);
     char *size = g_format_size(d->size);
     char *name = g_strdup_printf("%s · %s", d->model, size);
@@ -263,8 +280,9 @@ static void show_end(gboolean ok) {
     set_class(end_hero_box, "danger", FALSE);
   } else {
     gtk_label_set_text(GTK_LABEL(end_title), "L'installation a échoué");
-    char *t = g_strdup_printf("%s\n\nLe disque peut être dans un état incomplet. Vous pouvez relancer l'installation.",
-                              last_error ? last_error : "Erreur inconnue.");
+    char *t = g_strdup_printf("%s\n\n%s", last_error ? last_error : "Erreur inconnue.",
+                              touched ? "Le disque est dans un état incomplet. Vous pouvez relancer l'installation."
+                                      : "Le disque n'a pas été modifié.");
     gtk_label_set_text(GTK_LABEL(end_text), t);
     g_free(t);
     gtk_button_set_label(GTK_BUTTON(end_btn), "Fermer");
@@ -282,41 +300,79 @@ static void handle_line(const char *l) {
     if (end && *end == ' ') gtk_label_set_text(GTK_LABEL(prog_step), end + 1);
   } else if (g_str_has_prefix(l, "ERROR ")) {
     g_free(last_error); last_error = g_strdup(l + 6);
+  } else if (!strcmp(l, "WRITING")) {
+    touched = TRUE;
   } else if (!strcmp(l, "DONE")) {
     done_ok = TRUE;
   }
 }
 
-static gboolean on_output(GIOChannel *ch, GIOCondition c, gpointer d) {
-  char buf[4096];
-  gsize n = 0;
-  if (c & G_IO_IN) {
-    if (g_io_channel_read_chars(ch, buf, sizeof buf, &n, NULL) == G_IO_STATUS_NORMAL && n) {
-      g_string_append_len(linebuf, buf, n);
-      char *nl;
-      while ((nl = strchr(linebuf->str, '\n'))) {
-        *nl = 0;
-        handle_line(linebuf->str);
-        g_string_erase(linebuf, 0, nl - linebuf->str + 1);
-      }
-      return G_SOURCE_CONTINUE;
-    }
+#define LOG_PATH "/run/lumina-install.log"
+#define PID_PATH "/run/lumina-install.pid"
+static goffset log_pos;
+static guint poll_id;
+static GPid child = 0;
+static gboolean child_exited;
+static int child_code;
+
+/* L'installation tourne-t-elle ? (fichier pid du programme d'installation) */
+static gboolean install_running(void) {
+  char *t = NULL;
+  gboolean alive = FALSE;
+  if (g_file_get_contents(PID_PATH, &t, NULL, NULL)) {
+    int pid = atoi(t);
+    /* Le programme d'installation tourne en root : kill() repond EPERM a
+       l'utilisateur, ce qui prouve justement que le processus existe. */
+    alive = pid > 0 && (kill(pid, 0) == 0 || errno == EPERM);
   }
+  g_free(t);
+  return alive;
+}
+
+/* Lit les lignes ajoutees au journal depuis le dernier passage. */
+static void read_log(void) {
+  char *all = NULL;
+  gsize len = 0;
+  if (!g_file_get_contents(LOG_PATH, &all, &len, NULL)) return;
+  if ((goffset)len < log_pos) log_pos = 0;          /* journal recree */
+  char *p = all + log_pos, *nl;
+  while ((nl = memchr(p, '\n', all + len - p))) {
+    *nl = 0;
+    handle_line(p);
+    p = nl + 1;
+  }
+  log_pos = p - all;
+  g_free(all);
+}
+
+static gboolean poll_log(gpointer d) {
+  read_log();
+  gboolean finished = done_ok || last_error || (child ? child_exited : !install_running());
+  if (!finished) return G_SOURCE_CONTINUE;
+  read_log();
+  if (!done_ok && !last_error)
+    last_error = g_strdup(child && (child_code == 126 || child_code == 127)
+                          ? "Autorisation refusée par le système."
+                          : "Le programme d'installation s'est arrêté.");
+  poll_id = 0;
+  show_end(done_ok);
   return G_SOURCE_REMOVE;
 }
 
 static void on_child_exit(GPid pid, gint status, gpointer d) {
   g_spawn_close_pid(pid);
   /* pkexec : 126 = autorisation refusee, 127 = non autorise / introuvable */
-  int code = WIFEXITED(status) ? WEXITSTATUS(status) : -1;
-  if (!done_ok && !last_error)
-    last_error = g_strdup(code == 126 || code == 127 ? "Autorisation refusée par le système."
-                                                    : "Le programme d'installation s'est arrêté.");
-  show_end(done_ok);
+  child_code = WIFEXITED(status) ? WEXITSTATUS(status) : -1;
+  child_exited = TRUE;
+}
+
+static void start_polling(void) {
+  log_pos = 0;
+  if (!poll_id) poll_id = g_timeout_add(500, poll_log, NULL);
 }
 
 static void on_erase(void) {
-  done_ok = FALSE;
+  done_ok = touched = FALSE;
   g_clear_pointer(&last_error, g_free);
   gtk_progress_bar_set_fraction(GTK_PROGRESS_BAR(prog_bar), 0);
   gtk_label_set_text(GTK_LABEL(prog_step), "Démarrage");
@@ -324,23 +380,17 @@ static void on_erase(void) {
   go("progress");
 
   const char *argv[] = {"pkexec", "/usr/local/sbin/lumina-install-disk", chosen->path, NULL};
-  GPid pid;
-  int out_fd;
   GError *err = NULL;
-  if (!g_spawn_async_with_pipes(NULL, (char **)argv, NULL, G_SPAWN_SEARCH_PATH | G_SPAWN_DO_NOT_REAP_CHILD,
-                                NULL, NULL, &pid, NULL, &out_fd, NULL, &err)) {
+  child_exited = FALSE;
+  if (!g_spawn_async(NULL, (char **)argv, NULL, G_SPAWN_SEARCH_PATH | G_SPAWN_DO_NOT_REAP_CHILD |
+                     G_SPAWN_STDOUT_TO_DEV_NULL | G_SPAWN_STDERR_TO_DEV_NULL, NULL, NULL, &child, &err)) {
     last_error = g_strdup(err->message);
     g_clear_error(&err);
     show_end(FALSE);
     return;
   }
-  linebuf = g_string_new(NULL);
-  GIOChannel *ch = g_io_channel_unix_new(out_fd);
-  g_io_channel_set_encoding(ch, NULL, NULL);
-  g_io_channel_set_close_on_unref(ch, TRUE);
-  g_io_add_watch(ch, G_IO_IN | G_IO_HUP | G_IO_ERR, on_output, NULL);
-  g_io_channel_unref(ch);
-  g_child_watch_add(pid, on_child_exit, NULL);
+  g_child_watch_add(child, on_child_exit, NULL);
+  start_polling();
 }
 
 static void on_end(void) {
@@ -366,7 +416,7 @@ static void build(void) {
 
   /* Accueil */
   GtkWidget *p = page();
-  gtk_container_add(GTK_CONTAINER(p), hero("home", FALSE, NULL));
+  gtk_container_add(GTK_CONTAINER(p), logo(88));
   gtk_container_add(GTK_CONTAINER(p), text("Bienvenue dans LuminaOS", "title"));
   gtk_container_add(GTK_CONTAINER(p), text("LuminaOS fonctionne en ce moment depuis la clé USB : rien n'a été modifié "
                                            "sur ce PC. Vous pouvez l'essayer tel quel, ou l'installer pour de bon "
@@ -466,6 +516,20 @@ int main(int argc, char **argv) {
     return 0;
   }
   build();
+  char *log = NULL;
+  gboolean finished = !install_running() && g_file_get_contents(LOG_PATH, &log, NULL, NULL) &&
+                      strstr(log, "\nDONE\n") != NULL;
+  g_free(log);
+  if (finished) {
+    /* Installation terminee pendant que la fenetre etait fermee */
+    read_log();
+    show_end(TRUE);
+  } else if (install_running()) {
+    gtk_window_set_deletable(GTK_WINDOW(win), FALSE);
+    gtk_label_set_text(GTK_LABEL(prog_step), "Reprise de l'affichage…");
+    go("progress");
+    start_polling();
+  }
   gtk_main();
   return 0;
 }

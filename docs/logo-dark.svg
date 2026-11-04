@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 11.5 96 96" width="96" height="96">
+  <!-- LuminaOS · Aube : un soleil qui se leve sur l'horizon -->
+  <path d="M20 62a28 28 0 0 1 56 0z" fill="#d6fff0"/>
+  <rect x="10" y="66" width="76" height="7" rx="3.5" fill="#85d6bc"/>
+  <rect x="26" y="79" width="44" height="6" rx="3" fill="#85d6bc" opacity=".55"/>
+</svg>

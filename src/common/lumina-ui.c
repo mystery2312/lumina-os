@@ -77,6 +77,7 @@ static const Glyph GLYPHS[] = {
   {"home",    "<path d='M3.5 10.5 12 3.5l8.5 7V19a1.5 1.5 0 0 1-1.5 1.5h-4v-6h-6v6H5A1.5 1.5 0 0 1 3.5 19z'/>"},
   {"download","<path d='M12 3.5v11M7.5 10l4.5 4.5 4.5-4.5M4.5 19.5h15'/>"},
   {"trash",   "<path d='M4 6.5h16M9.5 6.5V4.5h5v2M6 6.5l1 13a1.5 1.5 0 0 0 1.5 1.5h7A1.5 1.5 0 0 0 17 19.5l1-13M10 10.5v6M14 10.5v6'/>"},
+  {"disk",    "<rect x='3' y='5' width='18' height='14' rx='3'/><path d='M3 14h18'/><circle cx='16.5' cy='16.5' r='.8' fill='currentColor' stroke='none'/>"},
   {"usb",     "<rect x='7' y='9' width='10' height='12' rx='2'/><path d='M9 9V3.5h6V9M10.5 5.5h.01M13.5 5.5h.01'/>"},
   {"eject",   "<path d='m5 14 7-8 7 8z'/><path d='M5 18.5h14'/>"},
   {"back",    "<path d='M19 12H5m6-6-6 6 6 6'/>"},

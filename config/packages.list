@@ -12,6 +12,8 @@ systemd-resolved
 labwc
 seatd
 libgtk-layer-shell0
+# eglinfo : lumina-session interroge le GPU avant de demarrer labwc
+mesa-utils-bin
 librsvg2-common
 fonts-roboto
 brightnessctl

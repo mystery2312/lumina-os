@@ -1,6 +1,6 @@
-# lumina-shell : GTK3 + gtk-layer-shell (+ epoxy pour la sonde GL,
-# + le protocole wlr-foreign-toplevel pour suivre les fenetres ouvertes).
-PKGS    = gtk+-3.0 gtk-layer-shell-0 epoxy wayland-client
+# lumina-shell : GTK3 + gtk-layer-shell (+ le protocole wlr-foreign-toplevel
+# pour suivre les fenetres ouvertes).
+PKGS    = gtk+-3.0 gtk-layer-shell-0 wayland-client
 CFLAGS ?= -O2 -g0 -Wall -Wextra -Wno-unused-parameter -Wno-missing-field-initializers
 OUT    ?= lumina-shell
 GEN    ?= $(dir $(OUT))gen

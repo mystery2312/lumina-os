@@ -1,3 +1,10 @@
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/logo-dark.svg">
+    <img src="docs/logo.svg" width="96" alt="Logo LuminaOS : un soleil qui se lève sur l'horizon">
+  </picture>
+</p>
+
 # LuminaOS
 
 Un OS de type ChromeOS : le navigateur **est** le système. Cible assumée :
@@ -131,9 +138,10 @@ affiche l'**icône propre** de chaque appli installée :
 - **Paquets Debian** avec interface graphique : type « Linux ».
 
 **Sans accélération 3D** (vieux GPU non pris en charge, VM) :
-`lumina-shell --probe-gl` le détecte à l'ouverture de session ; Chromium
-passe alors en `--disable-gpu` et le compositeur en rendu `pixman` au
-démarrage suivant. Réglage manuel dans `/etc/lumina/session.conf`.
+`lumina-session` interroge le GPU avant de démarrer le compositeur, à
+chaque ouverture de session (`eglinfo`, sans écran) : émulation llvmpipe
+→ rendu logiciel `pixman` pour labwc et `--disable-gpu` pour Chromium.
+Réglage manuel dans `/etc/lumina/session.conf`.
 
 ## Essayer, puis installer
 

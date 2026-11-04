@@ -12,12 +12,6 @@
  * Waydroid...) est masque plutot que simule.
  *
  * Commande a distance : SIGUSR1 bascule le tiroir, SIGUSR2 les reglages.
- *
- * lumina-shell --probe-gl : affiche "gpu" ou "software" selon que la
- * machine a une vraie acceleration 3D ou seulement une emulation sur le
- * processeur (llvmpipe). La session s'en sert pour regler Chromium et le
- * compositeur : sur un vieux GPU non pris en charge, le rendu logiciel
- * direct est bien plus leger que l'emulation 3D.
  */
 #include "lumina-ui.h"
 #include <gtk-layer-shell.h>
@@ -25,7 +19,6 @@
 #include <gdk/gdkwayland.h>
 #include "foreign-toplevel.h"
 #include <glib-unix.h>
-#include <epoxy/gl.h>
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -1539,25 +1532,8 @@ static void build_qs(void) {
   gtk_widget_show_all(v);
 }
 
-static int probe_gl(void) {
-  GtkWidget *w = gtk_window_new(GTK_WINDOW_TOPLEVEL);
-  gtk_widget_realize(w);
-  GError *e = NULL;
-  GdkGLContext *c = gdk_window_create_gl_context(gtk_widget_get_window(w), &e);
-  if (!c || !gdk_gl_context_realize(c, &e)) {
-    printf("software\t%s\n", e ? e->message : "aucun contexte GL");
-    return 0;
-  }
-  gdk_gl_context_make_current(c);
-  const char *r = (const char *)glGetString(GL_RENDERER);
-  gboolean soft = !r || strstr(r, "llvmpipe") || strstr(r, "softpipe") || strstr(r, "SWR");
-  printf("%s\t%s\n", soft ? "software" : "gpu", r ? r : "?");
-  return 0;
-}
-
 int main(int argc, char **argv) {
   gtk_init(&argc, &argv);
-  if (argc > 1 && g_strcmp0(argv[1], "--probe-gl") == 0) return probe_gl();
   lumina_ui_init(BASE_CSS, on_theme_changed);
 
   wifi_dev = find_wifi_dev();

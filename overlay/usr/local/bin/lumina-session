@@ -2,14 +2,14 @@
 # Lance le bureau : labwc (fenetres) + lumina-shell (tout le reste, via
 # /etc/xdg/labwc/autostart).
 #
-# Beaucoup de vieux GPU (et la carte virtuelle de QEMU) n'ont pas
-# d'acceleration GLES2 utilisable : wlroots plante alors au demarrage.
-# Strategie : on tente le GPU ; si le compositeur meurt dans les 20 s, on
-# note "pixman" (rendu logiciel) pour cette machine et systemd relance.
-STATE=/var/lib/lumina/renderer
+# Rendu : beaucoup de vieux GPU (et la carte virtuelle de QEMU) n'ont pas
+# d'acceleration 3D utilisable. Mesa se rabat alors sur llvmpipe, une
+# emulation 3D sur le processeur : lente, et sous laquelle labwc peut
+# planter. On interroge donc le GPU AVANT de demarrer le compositeur, a
+# chaque ouverture de session (la cle USB passe d'un PC a l'autre) :
+#   vraie acceleration -> GLES2 ; sinon -> rendu logiciel direct (pixman).
+# Le resultat sert aussi a Chromium (/etc/chromium.d/lumina).
 [ -r /etc/lumina/session.conf ] && . /etc/lumina/session.conf
-R="${LUMINA_RENDERER:-auto}"
-[ "$R" = auto ] && [ -r "$STATE" ] && R=$(cat "$STATE")
 
 export XDG_CURRENT_DESKTOP=lumina:wlroots
 export XKB_DEFAULT_LAYOUT="${LUMINA_KEYMAP:-fr}"
@@ -22,7 +22,31 @@ case "${LUMINA_LANG:-fr}" in
 esac
 export LANGUAGE="${LUMINA_LANG:-fr}"
 
-if [ "$R" = pixman ]; then
+RUN="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+CRASHED="$RUN/lumina-gles-crashed"
+
+# "gpu" ou "software", sans ouvrir d'ecran (plateforme EGL surfaceless).
+# mesa-utils-bin installe eglinfo sous un nom suffixe par l'architecture
+# (eglinfo.x86_64-linux-gnu) ; le lanceur "eglinfo" est dans un autre paquet.
+probe_gpu() {
+  bin=$(command -v eglinfo || ls /usr/bin/eglinfo.* 2>/dev/null | head -1)
+  [ -n "$bin" ] || { echo software; return; }
+  out=$(timeout 10 "$bin" -B -p surfaceless 2>/dev/null) || { echo software; return; }
+  if echo "$out" | grep -qiE 'renderer.*(llvmpipe|softpipe|swrast)'; then echo software
+  elif echo "$out" | grep -qi 'renderer'; then echo gpu
+  else echo software; fi
+}
+
+case "${LUMINA_RENDERER:-auto}" in
+  pixman) GPU=software ;;
+  gles2)  GPU=gpu ;;
+  *)      GPU=$(probe_gpu)
+          # GLES2 a deja plante pendant ce demarrage : on n'insiste pas.
+          [ -e "$CRASHED" ] && GPU=software ;;
+esac
+echo "$GPU" > "$RUN/lumina-gpu"
+
+if [ "$GPU" = software ]; then
   export WLR_RENDERER=pixman
   exec labwc
 fi
@@ -30,8 +54,10 @@ fi
 start=$(date +%s)
 labwc
 rc=$?
-if [ "$R" = auto ] && [ "$rc" -ne 0 ] && [ $(( $(date +%s) - start )) -lt 20 ]; then
-  echo pixman > "$STATE"
-  echo "lumina-session: GPU sans GLES2 utilisable, rendu logiciel desormais" >&2
+# Plantage dans les 20 s : le GPU annonce une acceleration qu'il ne tient
+# pas. Rendu logiciel jusqu'au prochain demarrage ; systemd relance.
+if [ "$rc" -ne 0 ] && [ $(( $(date +%s) - start )) -lt 20 ]; then
+  : > "$CRASHED"
+  echo "lumina-session: GLES2 instable sur ce GPU, rendu logiciel" >&2
 fi
 exit "$rc"

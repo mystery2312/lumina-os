@@ -10,9 +10,16 @@
 # identifiants fixes, un PC ou LuminaOS est installe et la cle branchee
 # verrait deux systemes identiques et pourrait demarrer sur la cle.
 #
-# Sortie lue par l'interface, une ligne par evenement :
-#   PROGRESS <0-100> <texte>   ERROR <message>   DONE
+# La progression va dans /run/lumina-install.log (et non vers la fenetre) :
+# si l'interface ou la session se ferme en cours de route, l'installation
+# continue, et l'installateur rouvert reprend l'affichage ou il en etait.
+# Une ligne par evenement :
+#   PROGRESS <0-100> <texte>   ERROR <message>   WRITING   DONE
+# WRITING annonce la premiere ecriture sur le disque : avant, un echec ne
+# l'a pas touche.
 set -euo pipefail
+# pkexec reinitialise PATH sans /usr/local : on le fixe nous-memes.
+export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
 TARGET="${1:-}"
 ESP_MB=512
@@ -23,6 +30,16 @@ say()  { echo "PROGRESS $1 $2"; }
 fail() { echo "ERROR $*"; exit 1; }
 
 [ "$(id -u)" = 0 ] || fail "L'installation doit être lancée en administrateur."
+
+LOG=/run/lumina-install.log
+PIDF=/run/lumina-install.pid
+if [ -e "$PIDF" ] && kill -0 "$(cat "$PIDF")" 2>/dev/null; then
+  fail "Une installation est déjà en cours."
+fi
+: > "$LOG"; chmod 644 "$LOG"
+echo $$ > "$PIDF"; chmod 644 "$PIDF"
+exec >>"$LOG" 2>&1
+trap 'rm -f "$PIDF"' EXIT
 # Garde-fou : ce script efface un disque. Il ne fonctionne que depuis une
 # cle de demarrage, jamais sur un LuminaOS deja installe.
 lumina-is-live || fail "LuminaOS doit avoir démarré depuis une clé USB pour être installé."
@@ -35,11 +52,13 @@ M=$(mktemp -d /run/lumina-install.XXXXXX)
 cleanup() {
   for d in "$M/esp" "$M/root"; do mountpoint -q "$d" 2>/dev/null && umount "$d"; done
   rm -rf "$M"
+  rm -f "$PIDF"
 }
 trap cleanup EXIT
 
 # --- 1. Partitions -----------------------------------------------------------
 say 3 "Préparation du disque"
+echo WRITING
 for p in $(lsblk -lnpo NAME "$TARGET" | tail -n +2); do umount "$p" 2>/dev/null || true; done
 wipefs -af "$TARGET" >/dev/null
 sgdisk -Z "$TARGET" >/dev/null 2>&1 || true
