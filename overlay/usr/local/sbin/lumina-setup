@@ -16,9 +16,14 @@ fi
 # Plages d'UID/GID pour les conteneurs sans privileges (Podman).
 grep -q '^lumina:' /etc/subuid || usermod --add-subuids 100000-165535 --add-subgids 100000-165535 lumina
 
-# Un mot de passe root connu, pour le debug en phase de dev.
-# A SUPPRIMER avant toute diffusion de l'image.
-echo 'root:lumina' | chpasswd
+. /etc/lumina/build.conf
+if [ "$DEV" = 1 ]; then
+  # Image de developpement : mot de passe root connu et console de secours.
+  echo 'root:lumina' | chpasswd
+else
+  # Image publiee : aucun acces root par mot de passe.
+  passwd -l root >/dev/null
+fi
 
 # dbus-broker remplace dbus-daemon : meme protocole, ~2x moins de RAM et
 # un demarrage plus rapide. Le variant 'important' peut tirer dbus-daemon,
@@ -35,6 +40,8 @@ locale-gen >/dev/null
 systemctl set-default graphical.target
 systemctl enable lumina-session.service
 systemctl enable lumina-mglru.service
+systemctl enable lumina-update.timer
+systemctl enable lumina-boot-ok.service
 systemctl enable seatd.service
 # ifupdown arrive avec le variant 'important' et ferait doublon avec networkd.
 systemctl disable networking.service 2>/dev/null || true
@@ -43,13 +50,15 @@ systemctl enable systemd-resolved.service
 systemctl enable iwd.service
 systemctl enable zramswap.service 2>/dev/null || true
 
-# Console de secours : Alt+F2 donne un root connecte automatiquement.
+# Console de secours (developpement seulement) : Alt+F2 = root connecte.
+if [ "$DEV" = 1 ]; then
 mkdir -p /etc/systemd/system/getty@tty2.service.d
 cat > /etc/systemd/system/getty@tty2.service.d/autologin.conf <<'UNIT'
 [Service]
 ExecStart=
 ExecStart=-/sbin/agetty --autologin root --noclear %I $TERM
 UNIT
+fi
 
 # Pas de swap sur disque : la partition d'etat n'en a pas, zram suffit.
 : > /etc/fstab

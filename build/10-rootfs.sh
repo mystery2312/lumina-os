@@ -36,6 +36,8 @@ else
   rm -f "$TARGET"
 fi
 
+echo ">> LuminaOS $VERSION (DEV=$DEV)"
+echo "$VERSION" > out/version
 echo ">> mmdebstrap $SUITE ($ARCH), mode=$MM_MODE -> $TARGET"
 $SUDO mmdebstrap \
   --mode="$MM_MODE" \
@@ -50,6 +52,8 @@ $SUDO mmdebstrap \
   --dpkgopt='path-exclude=/usr/share/doc/*' \
   --customize-hook="echo '$HOSTNAME' > \"\$1/etc/hostname\"" \
   --customize-hook='tar-in out/overlay.tar /' \
+  --customize-hook="printf 'VERSION=%s\nDEV=%s\nUPDATE_URL=%s\n' '$VERSION' '$DEV' '$UPDATE_URL' > \"\$1/etc/lumina/build.conf\"" \
+  --customize-hook="echo '$VERSION' > \"\$1/etc/lumina/version\"" \
   --customize-hook='chroot "$1" /usr/local/sbin/lumina-setup' \
   "$SUITE" "$TARGET" "$MIRROR"
 

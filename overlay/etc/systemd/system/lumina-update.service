@@ -1,0 +1,13 @@
+[Unit]
+Description=Mise a jour de LuminaOS (partition systeme inactive)
+Wants=network-online.target
+After=network-online.target var-lib-lumina.mount
+RequiresMountsFor=/var/lib/lumina
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/lumina-update
+# Une machine a 2 Go doit rester utilisable pendant le telechargement.
+Nice=19
+IOSchedulingClass=idle
+CPUSchedulingPolicy=idle

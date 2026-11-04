@@ -56,6 +56,12 @@ gdisk
 efibootmgr
 systemd-boot-efi
 
+# --- Mises a jour A/B ---------------------------------------------------
+# systemd-boot : systemd-bless-boot valide un demarrage reussi (sinon
+# retour automatique a l'ancienne version) ; zstd : images compressees.
+systemd-boot
+zstd
+
 # --- Reseau : iwd + networkd (~8 Mo contre ~60 pour NetworkManager) ---
 iwd
 iproute2

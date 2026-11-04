@@ -101,6 +101,10 @@ static const char *BASE_CSS =
   ".mem .muted { color: @on_var; font-size: 12.5px; }\n"
   ".mem .strong { font-size: 12.5px; font-weight: 500; }\n"
   ".legend { color: @on_var; font-size: 11.5px; }\n"
+  ".upd { background: @c_high; border-radius: 20px; padding: 6px 8px 6px 16px; min-height: 36px; }\n"
+  ".upd.ready { background: @pri_c; color: @on_pri_c; }\n"
+  ".upd label { font-size: 12.5px; }\n"
+  ".upd button { background: @pri; color: @on_pri; border-radius: 16px; padding: 4px 14px; font-weight: 500; }\n"
   ".pwr { background: @c_high; color: @on; border-radius: 20px; padding: 9px 14px; }\n"
   ".pwr:hover { background: @c_top; }\n";
 
@@ -162,6 +166,7 @@ static Icon *wifi_ic;
 static GtkWidget *dark_tile, *dark_sub, *android_tile, *android_sub;
 static GtkWidget *bright_row, *bright_scale, *vol_row, *vol_scale;
 static GtkWidget *mem_used_l, *mem_total_l, *mem_gauge, *zram_l;
+static GtkWidget *upd_row, *upd_l, *upd_btn;
 static double mem_u = 0, mem_z = 0;
 static char *wifi_dev;
 static guint bright_timer, vol_timer;
@@ -904,6 +909,19 @@ static void refresh_qs(void) {
     gtk_range_set_value(GTK_RANGE(bright_scale), bp);
     g_signal_handlers_unblock_by_func(bright_scale, on_bright, NULL);
   }
+  /* Version installee, et mise a jour prete a l'emploi au redemarrage */
+  char *ver = read_file("/etc/lumina/version"), *st = read_file("/run/lumina-update/status");
+  gboolean ready = st && g_str_has_prefix(st, "ready ");
+  char *txt;
+  if (ready) txt = g_strdup_printf("Mise à jour %s prête", st + 6);
+  else if (st && g_str_has_prefix(st, "downloading ")) txt = g_strdup_printf("Téléchargement de la version %s…", st + 12);
+  else if (st && g_str_has_prefix(st, "error ")) txt = g_strdup_printf("LuminaOS %s · %s", ver ? ver : "?", st + 6);
+  else txt = g_strdup_printf("LuminaOS %s%s", ver ? ver : "?", st && g_str_has_prefix(st, "uptodate") ? " · à jour" : "");
+  gtk_label_set_text(GTK_LABEL(upd_l), txt);
+  set_class(upd_row, "ready", ready);
+  gtk_widget_set_visible(upd_btn, ready);
+  g_free(ver); g_free(st); g_free(txt);
+
   int vp = volume_pct();
   gtk_widget_set_visible(vol_row, vp >= 0);
   if (vp >= 0) {
@@ -1511,6 +1529,19 @@ static void build_qs(void) {
   gtk_container_add(GTK_CONTAINER(lg), l2);
   gtk_container_add(GTK_CONTAINER(mem), lg);
   gtk_container_add(GTK_CONTAINER(v), mem);
+
+  upd_row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 10);
+  add_class(upd_row, "upd");
+  upd_l = label("", NULL, 0);
+  gtk_label_set_ellipsize(GTK_LABEL(upd_l), PANGO_ELLIPSIZE_END);
+  gtk_widget_set_hexpand(upd_l, TRUE);
+  gtk_container_add(GTK_CONTAINER(upd_row), upd_l);
+  upd_btn = gtk_button_new_with_label("Redémarrer");
+  g_signal_connect(upd_btn, "clicked", G_CALLBACK(on_power), (gpointer)"reboot");
+  gtk_container_add(GTK_CONTAINER(upd_row), upd_btn);
+  gtk_widget_show_all(upd_row);
+  gtk_widget_set_no_show_all(upd_btn, TRUE);
+  gtk_container_add(GTK_CONTAINER(v), upd_row);
 
   GtkWidget *pw = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
   gtk_box_set_homogeneous(GTK_BOX(pw), TRUE);

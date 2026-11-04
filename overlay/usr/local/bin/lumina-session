@@ -10,6 +10,9 @@
 #   vraie acceleration -> GLES2 ; sinon -> rendu logiciel direct (pixman).
 # Le resultat sert aussi a Chromium (/etc/chromium.d/lumina).
 [ -r /etc/lumina/session.conf ] && . /etc/lumina/session.conf
+# Reglages propres a cette machine : sur la partition d'etat, ils survivent
+# aux mises a jour (qui remplacent /etc avec le reste du systeme).
+[ -r /var/lib/lumina/config/session.conf ] && . /var/lib/lumina/config/session.conf
 
 export XDG_CURRENT_DESKTOP=lumina:wlroots
 export XKB_DEFAULT_LAYOUT="${LUMINA_KEYMAP:-fr}"

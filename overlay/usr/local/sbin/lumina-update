@@ -1,0 +1,122 @@
+#!/bin/bash
+# Mises a jour A/B de LuminaOS (lance par lumina-update.timer).
+#
+# 1. Lit le manifeste de la derniere version (UPDATE_URL, une Release
+#    GitHub) ; s'arrete si la version installee est a jour.
+# 2. Telecharge l'image systeme compressee et l'ecrit dans la partition
+#    systeme INACTIVE (B si l'on tourne sur A), en verifiant son empreinte
+#    au passage. La partition active n'est jamais touchee.
+# 3. Recopie ce qui est propre a la machine (fstab, identifiant, marqueur
+#    d'installation), installe le noyau de la nouvelle version, et ajoute
+#    une entree de demarrage avec 3 essais.
+# 4. Au redemarrage, systemd-boot prend la version la plus recente. Si elle
+#    ne demarre pas 3 fois de suite (panic=10 la fait redemarrer), son
+#    entree est marquee mauvaise et l'ancienne version reprend la main.
+#    Si elle demarre, systemd-bless-boot la valide (boot-complete.target).
+#
+# Etat lisible par l'interface dans /run/lumina-update/status :
+#   checking | uptodate <v> | downloading <v> | ready <v> | live | error <msg>
+set -euo pipefail
+export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+. /etc/lumina/build.conf
+[ -r /var/lib/lumina/config/update.conf ] && . /var/lib/lumina/config/update.conf
+
+S=/run/lumina-update
+mkdir -p "$S"; chmod 755 "$S"
+status() { echo "$*" > "$S/status.tmp"; chmod 644 "$S/status.tmp"; mv "$S/status.tmp" "$S/status"; echo "lumina-update: $*"; }
+fail() { status "error $*"; exit 1; }
+
+# Sur la cle USB, pas de mise a jour : on l'essaie ou on l'installe.
+if lumina-is-live; then status live; exit 0; fi
+# Une version est deja prete : elle attend juste un redemarrage.
+if [ -s "$S/ready" ]; then status "ready $(cat "$S/ready")"; exit 0; fi
+
+CUR=$(cat /etc/lumina/version)
+status checking
+MAN=$(curl -sSL --max-time 30 -w '\n%{http_code}' "$UPDATE_URL") || fail "Serveur de mises à jour injoignable"
+CODE=${MAN##*$'\n'}; MAN=${MAN%$'\n'*}
+# 404 : aucune version publiee pour l'instant, ce n'est pas une panne.
+if [ "$CODE" = 404 ]; then status "uptodate $CUR"; exit 0; fi
+[ "$CODE" = 200 ] || fail "Serveur de mises à jour : erreur $CODE"
+get() { printf '%s\n' "$MAN" | sed -n "s/^$1=//p" | head -1; }
+NEW=$(get VERSION); FILE=$(get ROOT_FILE); SUM=$(get ROOT_SHA256); BYTES=$(get ROOT_BYTES)
+[ -n "$NEW" ] && [ -n "$FILE" ] && [ -n "$SUM" ] && [ -n "$BYTES" ] || fail "Manifeste de mise à jour invalide"
+
+newest=$(printf '%s\n%s\n' "$CUR" "$NEW" | sort -V | tail -1)
+if [ "$NEW" = "$CUR" ] || [ "$newest" != "$NEW" ]; then status "uptodate $CUR"; exit 0; fi
+
+# L'image est rangee a cote du manifeste (meme Release)
+case "$FILE" in http*) URL=$FILE ;; *) URL="${UPDATE_URL%/*}/$FILE" ;; esac
+
+# --- Partitions : active, cible, ESP ----------------------------------------
+ROOTSRC=$(findmnt -no SOURCE /)
+DISK=/dev/$(lsblk -no PKNAME "$ROOTSRC" | head -1 | tr -d ' ')
+part_by_label() { lsblk -lnpo NAME,PARTLABEL "$DISK" | awk -v l="$1" '$2 == l { print $1 }'; }
+case "$(lsblk -no PARTLABEL "$ROOTSRC" | tr -d ' ')" in
+  ROOT-A) T=b; TPART=$(part_by_label ROOT-B) ;;
+  ROOT-B) T=a; TPART=$(part_by_label ROOT-A) ;;
+  *) fail "Disposition de disque inconnue" ;;
+esac
+ESP=$(part_by_label ESP)
+[ -b "$TPART" ] && [ -b "$ESP" ] || fail "Partitions introuvables"
+findmnt -n "$TPART" >/dev/null && fail "La partition cible est montée"
+[ "$BYTES" -le "$(blockdev --getsize64 "$TPART")" ] || fail "Image trop grande pour la partition"
+TUUID=$(lsblk -no PARTUUID "$TPART" | tr -d ' ')
+
+M=$(mktemp -d "$S/mnt.XXXXXX")
+cleanup() {
+  for d in "$M/root" "$M/esp"; do mountpoint -q "$d" 2>/dev/null && umount "$d"; done
+  rm -rf "$M"
+}
+trap cleanup EXIT
+mkdir -p "$M/root" "$M/esp"
+
+# Avant d'ecrire quoi que ce soit : retirer l'entree de demarrage de la
+# partition cible. Une ecriture interrompue ne peut ainsi jamais etre
+# demarree.
+mount "$ESP" "$M/esp"
+rm -f "$M/esp/loader/entries/lumina-$T.conf" "$M/esp/loader/entries/lumina-$T+"*.conf
+sync
+
+# --- Telechargement -> decompression -> partition ---------------------------
+status "downloading $NEW"
+rm -f "$S/sum"
+curl -fsSL --retry 3 --retry-delay 10 "$URL" \
+  | tee >(sha256sum | cut -d' ' -f1 > "$S/sum") \
+  | zstd -dcq \
+  | dd of="$TPART" bs=4M iflag=fullblock conv=fsync status=none \
+  || fail "Téléchargement interrompu"
+for _ in $(seq 50); do [ -s "$S/sum" ] && break; sleep 0.2; done
+[ "$(cat "$S/sum" 2>/dev/null)" = "$SUM" ] || fail "Empreinte incorrecte : image corrompue, mise à jour annulée"
+
+# Le systeme de fichiers de l'image est plus petit que la partition
+e2fsck -fy "$TPART" >/dev/null 2>&1 || true
+resize2fs "$TPART" >/dev/null 2>&1 || true
+
+# --- Ce qui suit la machine d'une version a l'autre -------------------------
+mount "$TPART" "$M/root"
+[ "$(cat "$M/root/etc/lumina/version")" = "$NEW" ] || fail "L'image ne correspond pas à la version annoncée"
+cp /etc/fstab "$M/root/etc/fstab"                     # partition d'etat de CETTE machine
+cp /etc/machine-id "$M/root/etc/machine-id"
+[ -e /etc/lumina/installed ] && cp -a /etc/lumina/installed "$M/root/etc/lumina/installed"
+
+# --- Noyau et entree de demarrage (3 essais) --------------------------------
+KVER=$(ls "$M/root/boot"/vmlinuz-* | sort -V | tail -1 | sed 's|.*/vmlinuz-||')
+mkdir -p "$M/esp/lumina-$T"
+cp "$M/root/boot/vmlinuz-$KVER" "$M/esp/lumina-$T/vmlinuz"
+cp "$M/root/boot/initrd.img-$KVER" "$M/esp/lumina-$T/initrd.img"
+# La console du systeme actuel (VM de test) suit la nouvelle version
+EXTRA=$(tr ' ' '\n' < /proc/cmdline | grep -E '^console=' | tr '\n' ' ' || true)
+cat > "$M/esp/loader/entries/lumina-$T+3.conf" <<EOF
+title    LuminaOS $NEW
+sort-key luminaos
+version  $NEW
+linux    /lumina-$T/vmlinuz
+initrd   /lumina-$T/initrd.img
+options  root=PARTUUID=$TUUID rw rootwait quiet loglevel=3 panic=10 ${EXTRA}
+EOF
+sync
+
+echo "$NEW" > "$S/ready"; chmod 644 "$S/ready"
+status "ready $NEW"

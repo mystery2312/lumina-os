@@ -172,6 +172,39 @@ l'image comme une clé USB avec un disque interne vierge de 32 Go ; après
 installation, `INSTALLED=1 HEADLESS=1 build/30-qemu.sh` démarre ce disque
 seul.
 
+## Mises à jour automatiques (A/B)
+
+Une machine installée cherche une nouvelle version 5 minutes après le
+démarrage puis toutes les 6 heures (`lumina-update.timer`), avec une
+priorité minimale pour rester utilisable :
+
+1. lecture du manifeste de la dernière Release GitHub
+   (`releases/latest/download/manifest.txt`) ;
+2. téléchargement de l'image système compressée, écrite dans la partition
+   système **inactive** (B si l'on tourne sur A), empreinte SHA-256 vérifiée
+   au passage ; l'entrée de démarrage de cette partition est retirée
+   *avant* d'écrire, une écriture interrompue n'est donc jamais démarrée ;
+3. recopie de ce qui est propre à la machine (fstab, identifiant, marqueur
+   d'installation), noyau dans `ESP/lumina-<a|b>/`, entrée de démarrage
+   avec **3 essais** ;
+4. « Mise à jour prête · Redémarrer » dans les réglages rapides.
+
+Au redémarrage, systemd-boot prend la version la plus récente. Elle est
+validée (`systemd-bless-boot`) quand le bureau tourne depuis 20 s ; sinon
+`panic=10` la fait redémarrer, et après 3 échecs **l'ancienne version
+reprend la main** toute seule. Les fichiers, Linux, Chromium et les réseaux
+Wi-Fi sont sur la partition d'état : une mise à jour n'y touche jamais.
+Les réglages propres à une machine vont dans
+`/var/lib/lumina/config/session.conf`.
+
+Publier une version :
+
+```bash
+DEV=0 build/10-rootfs.sh            # image sans accès root
+build/40-release.sh                 # image compressée + manifest.txt
+build/40-release.sh --publish       # Release GitHub (refusé si DEV=1)
+```
+
 ## Disposition du disque (calquée sur ChromeOS)
 
 ```
@@ -197,7 +230,8 @@ de machine cassée à distance.
 - [ ] **M2d** Coins arrondis en bas des fenêtres (limite de labwc), Chromium
       qui suit le thème sombre, Bluetooth,
       boot BIOS pour les netbooks pré-UEFI
-- [ ] **M3** Racine en lecture seule, dm-verity, updater A/B
+- [x] **M3** Mises à jour A/B depuis GitHub, retour automatique, testé
+- [ ] **M3b** Racine en lecture seule et vérifiée (dm-verity), images signées
 - [ ] **M4** Apps Android : lanceur et tiroir prêts, à valider sur une vraie
       machine de 4 Go (Waydroid ne tourne pas dans la VM de test)
 - [ ] **M5** Couche IA : API distante par défaut, `llama.cpp` + modèle 0,6 B
@@ -205,9 +239,9 @@ de machine cassée à distance.
 
 ## Mot de passe root
 
-`root` / `lumina`, autologin sur Alt+F2, pour le développement.
-Défini dans `overlay/usr/local/sbin/lumina-setup` — **à retirer avant toute
-diffusion d'image**.
+Images de développement (`DEV=1`, par défaut) : `root` / `lumina`, console
+connectée sur Alt+F2. Images publiées (`DEV=0`) : aucun accès root ;
+`build/40-release.sh --publish` refuse une image de développement.
 
 ## Licence
 

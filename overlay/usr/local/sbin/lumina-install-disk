@@ -112,20 +112,27 @@ date -u +%Y-%m-%dT%H:%M:%SZ > "$M/root/etc/lumina/installed"   # lu par lumina-i
 # --- 5. Demarrage ------------------------------------------------------------
 say 90 "Installation du démarrage"
 KVER=$(uname -r)
+VERSION=$(cat /etc/lumina/version)
 EFI=/usr/lib/systemd/boot/efi/systemd-bootx64.efi
-mkdir -p "$M/esp/EFI/BOOT" "$M/esp/EFI/systemd" "$M/esp/loader/entries"
+mkdir -p "$M/esp/EFI/BOOT" "$M/esp/EFI/systemd" "$M/esp/loader/entries" "$M/esp/lumina-a"
 # Chemin de secours (BOOTX64.EFI) : demarre meme si le firmware oublie
 # l'entree ci-dessous ; chemin nomme pour l'entree du firmware.
 cp "$EFI" "$M/esp/EFI/BOOT/BOOTX64.EFI"
 cp "$EFI" "$M/esp/EFI/systemd/systemd-bootx64.efi"
-cp "/boot/vmlinuz-$KVER" "$M/esp/vmlinuz"
-cp "/boot/initrd.img-$KVER" "$M/esp/initrd.img"
-printf 'default lumina-a.conf\ntimeout 0\neditor no\n' > "$M/esp/loader/loader.conf"
-for x in A:"$U_A" B:"$U_B"; do
-  n=${x%%:*}; u=${x#*:}
-  printf 'title LuminaOS (%s)\nlinux /vmlinuz\ninitrd /initrd.img\noptions root=PARTUUID=%s rw rootwait quiet loglevel=3\n' \
-    "$n" "$u" > "$M/esp/loader/entries/lumina-$(echo "$n" | tr AB ab).conf"
-done
+# Un noyau par emplacement : la mise a jour de B ne touche pas a A.
+cp "/boot/vmlinuz-$KVER" "$M/esp/lumina-a/vmlinuz"
+cp "/boot/initrd.img-$KVER" "$M/esp/lumina-a/initrd.img"
+# Pas de "default" : systemd-boot prend la plus haute version (voir
+# lumina-update). B est vide jusqu'a la premiere mise a jour.
+printf 'timeout 0\neditor no\n' > "$M/esp/loader/loader.conf"
+cat > "$M/esp/loader/entries/lumina-a.conf" <<EOF
+title    LuminaOS $VERSION
+sort-key luminaos
+version  $VERSION
+linux    /lumina-a/vmlinuz
+initrd   /lumina-a/initrd.img
+options  root=PARTUUID=$U_A rw rootwait quiet loglevel=3 panic=10
+EOF
 # Entree "LuminaOS" en tete de l'ordre de demarrage du firmware.
 if [ -d /sys/firmware/efi/efivars ]; then
   efibootmgr -q -c -d "$TARGET" -p 1 -L "LuminaOS" -l '\EFI\systemd\systemd-bootx64.efi' \

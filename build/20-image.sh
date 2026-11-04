@@ -38,7 +38,10 @@ STATE_MB=$((TOTAL_MB - STATE_START - 1))
 KVER=$($SUDO sh -c "ls -1 '$SRC'/boot/vmlinuz-* | sort -V | tail -1" | sed 's|.*/vmlinuz-||')
 [ -n "$KVER" ] || { echo "aucun noyau trouve dans $SRC/boot"; exit 1; }
 echo ">> noyau $KVER"
-CMDLINE="root=PARTUUID=$UUID_ROOT_A rw rootwait quiet loglevel=3 $KERNEL_CMDLINE_EXTRA"
+VERSION=$($SUDO cat "$SRC/etc/lumina/version")
+# panic=10 : un systeme qui ne demarre pas redemarre, ce qui decompte les
+# essais d'une nouvelle version (retour automatique a l'ancienne).
+CMDLINE="root=PARTUUID=$UUID_ROOT_A rw rootwait quiet loglevel=3 panic=10 $KERNEL_CMDLINE_EXTRA"
 
 # On recopie noyau et initrd en local : mcopy doit pouvoir les lire.
 $SUDO cp "$SRC/boot/vmlinuz-$KVER" "$W/vmlinuz"
@@ -47,22 +50,23 @@ $SUDO chown "$(id -u):$(id -g)" "$W/vmlinuz" "$W/initrd.img"
 
 mkfs.vfat -F 32 -n LUMINA-ESP -C "$W/esp.img" $((ESP_MB * 1024)) >/dev/null
 export MTOOLS_SKIP_CHECK=1
-mmd -i "$W/esp.img" ::/EFI ::/EFI/BOOT ::/loader ::/loader/entries
+mmd -i "$W/esp.img" ::/EFI ::/EFI/BOOT ::/loader ::/loader/entries ::/lumina-a
 # systemd-boot pose en BOOTX64.EFI : aucune variable NVRAM a ecrire,
 # l'image est amorcable telle quelle sur n'importe quelle machine UEFI.
 mcopy -i "$W/esp.img" /usr/lib/systemd/boot/efi/systemd-bootx64.efi ::/EFI/BOOT/BOOTX64.EFI
-mcopy -i "$W/esp.img" "$W/vmlinuz"    ::/vmlinuz
-mcopy -i "$W/esp.img" "$W/initrd.img" ::/initrd.img
+# Un noyau par emplacement (A, B) : mettre a jour B ne touche pas au noyau
+# de A, vers lequel on peut toujours revenir.
+mcopy -i "$W/esp.img" "$W/vmlinuz"    ::/lumina-a/vmlinuz
+mcopy -i "$W/esp.img" "$W/initrd.img" ::/lumina-a/initrd.img
 
-printf 'default lumina-a.conf\ntimeout 0\neditor no\n' > "$W/loader.conf"
+# Pas de "default" : systemd-boot demarre l'entree de plus haute version,
+# et relegue en fin de liste une entree dont les essais sont epuises.
+printf 'timeout 0\neditor no\n' > "$W/loader.conf"
 mcopy -i "$W/esp.img" "$W/loader.conf" ::/loader/loader.conf
-printf 'title LuminaOS (A)\nlinux /vmlinuz\ninitrd /initrd.img\noptions %s\n' \
-  "$CMDLINE" > "$W/entry-a.conf"
+# B est vide : sa premiere entree sera ecrite par lumina-update.
+printf 'title    LuminaOS %s\nsort-key luminaos\nversion  %s\nlinux    /lumina-a/vmlinuz\ninitrd   /lumina-a/initrd.img\noptions  %s\n' \
+  "$VERSION" "$VERSION" "$CMDLINE" > "$W/entry-a.conf"
 mcopy -i "$W/esp.img" "$W/entry-a.conf" ::/loader/entries/lumina-a.conf
-printf 'title LuminaOS (B)\nlinux /vmlinuz\ninitrd /initrd.img\noptions %s\n' \
-  "root=PARTUUID=$UUID_ROOT_B rw rootwait quiet loglevel=3 $KERNEL_CMDLINE_EXTRA" \
-  > "$W/entry-b.conf"
-mcopy -i "$W/esp.img" "$W/entry-b.conf" ::/loader/entries/lumina-b.conf
 
 # --- 2. ROOT-A : ext4 fabrique depuis le repertoire -------------------
 echo ">> mke2fs root (${ROOT_MB} MiB)"
