@@ -145,3 +145,11 @@ de machine cassée à distance.
 `root` / `lumina`, autologin sur Alt+F2, pour le développement.
 Défini dans `overlay/usr/local/sbin/lumina-setup` — **à retirer avant toute
 diffusion d'image**.
+
+## Licence
+
+LuminaOS est un logiciel libre, distribué sous licence
+[GPL-3.0](LICENSE) : chacun peut l'utiliser, l'étudier, le modifier et le
+redistribuer, à condition que les versions modifiées restent libres.
+Les logiciels intégrés à l'image (Debian, Chromium, labwc…) gardent leurs
+propres licences.
