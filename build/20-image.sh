@@ -51,9 +51,26 @@ $SUDO chown "$(id -u):$(id -g)" "$W/vmlinuz" "$W/initrd.img"
 mkfs.vfat -F 32 -n LUMINA-ESP -C "$W/esp.img" $((ESP_MB * 1024)) >/dev/null
 export MTOOLS_SKIP_CHECK=1
 mmd -i "$W/esp.img" ::/EFI ::/EFI/BOOT ::/loader ::/loader/entries ::/lumina-a
-# systemd-boot pose en BOOTX64.EFI : aucune variable NVRAM a ecrire,
+# Chemin de secours EFI/BOOT/BOOTX64.EFI : aucune variable NVRAM a ecrire,
 # l'image est amorcable telle quelle sur n'importe quelle machine UEFI.
-mcopy -i "$W/esp.img" /usr/lib/systemd/boot/efi/systemd-bootx64.efi ::/EFI/BOOT/BOOTX64.EFI
+# Secure Boot : BOOTX64.EFI = shim (signe Microsoft), qui charge
+# grubx64.efi a cote de lui = systemd-boot signe par Debian ; le noyau
+# Debian est signe lui aussi. Sans les paquets signes, systemd-boot seul.
+SHIM="$SRC/usr/lib/shim/shimx64.efi.signed"
+MOK="$SRC/usr/lib/shim/mmx64.efi.signed"
+SDB="$SRC/usr/lib/systemd/boot/efi/systemd-bootx64.efi.signed"
+if $SUDO test -f "$SHIM" && $SUDO test -f "$SDB"; then
+  $SUDO cp "$SHIM" "$W/shim.efi"; $SUDO cp "$SDB" "$W/sdboot.efi"
+  $SUDO test -f "$MOK" && $SUDO cp "$MOK" "$W/mm.efi"
+  $SUDO chown "$(id -u):$(id -g)" "$W"/*.efi
+  mcopy -i "$W/esp.img" "$W/shim.efi"   ::/EFI/BOOT/BOOTX64.EFI
+  mcopy -i "$W/esp.img" "$W/sdboot.efi" ::/EFI/BOOT/grubx64.efi
+  [ -f "$W/mm.efi" ] && mcopy -i "$W/esp.img" "$W/mm.efi" ::/EFI/BOOT/mmx64.efi
+  echo ">> Secure Boot : shim + systemd-boot signes"
+else
+  mcopy -i "$W/esp.img" /usr/lib/systemd/boot/efi/systemd-bootx64.efi ::/EFI/BOOT/BOOTX64.EFI
+  echo ">> sans Secure Boot (paquets signes absents)"
+fi
 # Un noyau par emplacement (A, B) : mettre a jour B ne touche pas au noyau
 # de A, vers lequel on peut toujours revenir.
 mcopy -i "$W/esp.img" "$W/vmlinuz"    ::/lumina-a/vmlinuz

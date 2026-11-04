@@ -14,15 +14,23 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 source config/image.conf
 RAM="${RAM:-2048}"
-OVMF=/usr/share/OVMF/OVMF_CODE_4M.fd
+# SECUREBOOT=1 : firmware avec Secure Boot actif et cles Microsoft
+if [ "${SECUREBOOT:-0}" = 1 ]; then
+  OVMF=/usr/share/OVMF/OVMF_CODE_4M.secboot.fd
+  VARS=out/OVMF_VARS_SB.fd
+  [ -f "$VARS" ] || cp /usr/share/OVMF/OVMF_VARS_4M.ms.fd "$VARS"
+else
+  OVMF=/usr/share/OVMF/OVMF_CODE_4M.fd
+  VARS=out/OVMF_VARS.fd
+  [ -f "$VARS" ] || cp /usr/share/OVMF/OVMF_VARS_4M.fd "$VARS"
+fi
 [ -f "$OVMF" ] || { echo "OVMF introuvable : sudo apt install ovmf"; exit 1; }
-VARS=out/OVMF_VARS.fd
-[ -f "$VARS" ] || cp /usr/share/OVMF/OVMF_VARS_4M.fd "$VARS"
 ACCEL=$([ -w /dev/kvm ] && echo kvm || echo tcg)
 PC_DISK=out/disque-pc.img
 
 ARGS=(
-  -machine q35,accel=$ACCEL -cpu max -smp 2 -m "$RAM"
+  -machine q35,accel=$ACCEL$([ "${SECUREBOOT:-0}" = 1 ] && echo ",smm=on") -cpu max -smp 2 -m "$RAM"
+  $([ "${SECUREBOOT:-0}" = 1 ] && echo "-global driver=cfi.pflash01,property=secure,value=on")
   -drive if=pflash,format=raw,unit=0,readonly=on,file="$OVMF"
   -drive if=pflash,format=raw,unit=1,file="$VARS"
   -device virtio-net-pci,netdev=n0 -netdev user,id=n0

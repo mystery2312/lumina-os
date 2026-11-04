@@ -113,12 +113,23 @@ date -u +%Y-%m-%dT%H:%M:%SZ > "$M/root/etc/lumina/installed"   # lu par lumina-i
 say 90 "Installation du démarrage"
 KVER=$(uname -r)
 VERSION=$(cat /etc/lumina/version)
-EFI=/usr/lib/systemd/boot/efi/systemd-bootx64.efi
-mkdir -p "$M/esp/EFI/BOOT" "$M/esp/EFI/systemd" "$M/esp/loader/entries" "$M/esp/lumina-a"
-# Chemin de secours (BOOTX64.EFI) : demarre meme si le firmware oublie
-# l'entree ci-dessous ; chemin nomme pour l'entree du firmware.
-cp "$EFI" "$M/esp/EFI/BOOT/BOOTX64.EFI"
-cp "$EFI" "$M/esp/EFI/systemd/systemd-bootx64.efi"
+mkdir -p "$M/esp/EFI/BOOT" "$M/esp/EFI/luminaos" "$M/esp/loader/entries" "$M/esp/lumina-a"
+# Secure Boot : shim (signe Microsoft) charge grubx64.efi place a cote de
+# lui, ici systemd-boot signe par Debian. Deux exemplaires : EFI/luminaos
+# pour l'entree du firmware, EFI/BOOT (chemin de secours) si le firmware
+# oublie cette entree.
+SHIM=/usr/lib/shim/shimx64.efi.signed
+SDB=/usr/lib/systemd/boot/efi/systemd-bootx64.efi.signed
+MOK=/usr/lib/shim/mmx64.efi.signed
+for d in "$M/esp/EFI/BOOT" "$M/esp/EFI/luminaos"; do
+  if [ -f "$SHIM" ] && [ -f "$SDB" ]; then
+    cp "$SDB" "$d/grubx64.efi"
+    [ -f "$MOK" ] && cp "$MOK" "$d/mmx64.efi"
+    cp "$SHIM" "$d/$( [ "$d" = "$M/esp/EFI/BOOT" ] && echo BOOTX64.EFI || echo shimx64.efi )"
+  else
+    cp /usr/lib/systemd/boot/efi/systemd-bootx64.efi "$d/$( [ "$d" = "$M/esp/EFI/BOOT" ] && echo BOOTX64.EFI || echo shimx64.efi )"
+  fi
+done
 # Un noyau par emplacement : la mise a jour de B ne touche pas a A.
 cp "/boot/vmlinuz-$KVER" "$M/esp/lumina-a/vmlinuz"
 cp "/boot/initrd.img-$KVER" "$M/esp/lumina-a/initrd.img"
@@ -135,7 +146,7 @@ options  root=PARTUUID=$U_A rw rootwait quiet loglevel=3 panic=10
 EOF
 # Entree "LuminaOS" en tete de l'ordre de demarrage du firmware.
 if [ -d /sys/firmware/efi/efivars ]; then
-  efibootmgr -q -c -d "$TARGET" -p 1 -L "LuminaOS" -l '\EFI\systemd\systemd-bootx64.efi' \
+  efibootmgr -q -c -d "$TARGET" -p 1 -L "LuminaOS" -l '\EFI\luminaos\shimx64.efi' \
     || echo "PROGRESS 95 Entrée de démarrage non enregistrée : le PC utilisera le chemin de secours"
 fi
 

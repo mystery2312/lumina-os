@@ -56,6 +56,13 @@ gdisk
 efibootmgr
 systemd-boot-efi
 
+# --- Secure Boot : chaine de confiance de Debian -----------------------
+# shim (signe par Microsoft) -> systemd-boot et noyau (signes par Debian) :
+# LuminaOS demarre sans desactiver le Secure Boot.
+shim-signed
+shim-helpers-amd64-signed
+systemd-boot-efi-amd64-signed
+
 # --- Mises a jour A/B ---------------------------------------------------
 # systemd-boot : systemd-bless-boot valide un demarrage reussi (sinon
 # retour automatique a l'ancienne version) ; zstd : images compressees.
