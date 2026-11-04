@@ -2,6 +2,9 @@
 Type=Application
 Name=Docs
 Exec=lumina-webapp https://docs.google.com
+Icon=lumina-docs
+# Icone officielle, telechargee sur l'appareil par lumina-fetch-icons
+X-Lumina-IconUrl=https://www.gstatic.com/images/branding/product/2x/docs_2020q4_48dp.png
 X-Lumina-Glyph=docs
 X-Lumina-Tone=ter
 X-Lumina-Kind=Web

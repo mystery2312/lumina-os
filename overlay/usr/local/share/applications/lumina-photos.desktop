@@ -2,6 +2,9 @@
 Type=Application
 Name=Photos
 Exec=lumina-webapp https://photos.google.com
+Icon=lumina-photos
+# Icone officielle, telechargee sur l'appareil par lumina-fetch-icons
+X-Lumina-IconUrl=https://www.gstatic.com/images/branding/product/2x/photos_48dp.png
 X-Lumina-Glyph=photo
 X-Lumina-Tone=ter
 X-Lumina-Kind=Web

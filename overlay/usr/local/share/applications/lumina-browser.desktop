@@ -2,6 +2,8 @@
 Type=Application
 Name=Navigateur
 Exec=lumina-browser
+Icon=chromium
 X-Lumina-Glyph=web
 X-Lumina-Tone=pri
 X-Lumina-Kind=Web
+StartupWMClass=chromium

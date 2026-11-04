@@ -10,4 +10,5 @@ if [ "${GPU:-software}" = software ] && [ "${LUMINA_RENDERER:-auto}" = auto ]; t
 fi
 
 lumina-shell &
+lumina-fetch-icons &
 [ "${LUMINA_OPEN_BROWSER:-yes}" = yes ] && lumina-browser &

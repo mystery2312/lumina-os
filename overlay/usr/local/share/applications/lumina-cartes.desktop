@@ -1,7 +1,10 @@
 [Desktop Entry]
 Type=Application
-Name=Cartes
+Name=Maps
 Exec=lumina-webapp https://maps.google.com
+Icon=lumina-cartes
+# Icone officielle, telechargee sur l'appareil par lumina-fetch-icons
+X-Lumina-IconUrl=https://www.gstatic.com/images/branding/product/2x/maps_48dp.png
 X-Lumina-Glyph=map
 X-Lumina-Tone=pri
 X-Lumina-Kind=Web

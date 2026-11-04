@@ -1,0 +1,41 @@
+#!/bin/sh
+# Telecharge l'icone officielle de chaque appli web LuminaOS (Gmail, Drive,
+# YouTube...) depuis le service lui-meme, comme le fait Chromium pour une
+# PWA. Les logos ne sont pas distribues dans l'image : ce sont des marques
+# de leurs proprietaires, servies a l'utilisateur par leur site.
+#
+# Lance a chaque ouverture de session ; ne telecharge que ce qui manque,
+# attend le reseau, puis previent lumina-shell (SIGHUP) de recharger.
+# Hors ligne, le tiroir garde le glyphe LuminaOS en attendant.
+DEST="$HOME/.local/share/icons/hicolor/128x128/apps"
+mkdir -p "$DEST"
+
+# Attendre le reseau (jusqu'a 10 min) sans rien consommer d'autre.
+i=0
+until curl -fsS -o /dev/null --max-time 5 https://www.google.com/generate_204 2>/dev/null; do
+  i=$((i + 1)); [ "$i" -gt 60 ] && exit 0
+  sleep 10
+done
+
+new=0
+for f in /usr/local/share/applications/lumina-*.desktop; do
+  icon=$(sed -n 's/^Icon=\(lumina-.*\)$/\1/p' "$f")
+  url=$(sed -n 's|^Exec=lumina-webapp \(https://[^ ]*\).*|\1|p' "$f")
+  [ -n "$icon" ] && [ -n "$url" ] || continue
+  [ -s "$DEST/$icon.png" ] && continue
+  # Adresse officielle de l'icone si l'entree la donne (produits Google :
+  # leur favicon renvoie le "G" generique tant qu'on n'est pas connecte),
+  # sinon le service de favicons, qui renvoie l'icone declaree par le site.
+  src=$(sed -n 's/^X-Lumina-IconUrl=//p' "$f")
+  if [ -z "$src" ]; then
+    host=$(echo "$url" | sed 's|https://\([^/]*\).*|\1|')
+    src="https://www.google.com/s2/favicons?domain=$host&sz=128"
+  fi
+  if curl -fsSL --max-time 15 -o "$DEST/$icon.png.tmp" "$src"; then
+    mv "$DEST/$icon.png.tmp" "$DEST/$icon.png"; new=1
+  else
+    rm -f "$DEST/$icon.png.tmp"
+  fi
+done
+[ "$new" = 1 ] && pkill -HUP -x lumina-shell
+exit 0

@@ -4,7 +4,8 @@
 #   build/30-qemu.sh             fenetre graphique (necessite un ecran)
 #   HEADLESS=1 build/30-qemu.sh  sans ecran : journal serie dans out/serial.log,
 #                                terminal via build/vm-run.sh, captures via
-#                                build/screenshot.sh
+#                                build/screenshot.sh, ecran en VNC sur
+#                                127.0.0.1:5900 (tunnel SSH si distant)
 set -euo pipefail
 cd "$(dirname "$0")/.."
 source config/image.conf
@@ -27,6 +28,7 @@ if [ "${HEADLESS:-0}" = "1" ]; then
   rm -f out/qemu-monitor.sock out/serial.sock out/serial.log
   ARGS+=(
     -device virtio-vga -display none
+    -vnc 127.0.0.1:0
     -chardev socket,id=s0,path=out/serial.sock,server=on,wait=off,logfile=out/serial.log
     -serial chardev:s0
     -monitor unix:out/qemu-monitor.sock,server,nowait

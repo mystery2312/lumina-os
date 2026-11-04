@@ -22,6 +22,8 @@
 #include <gtk/gtk.h>
 #include <gtk-layer-shell.h>
 #include <gio/gdesktopappinfo.h>
+#include <gdk/gdkwayland.h>
+#include "foreign-toplevel.h"
 #include <glib-unix.h>
 #include <epoxy/gl.h>
 #include <math.h>
@@ -35,17 +37,18 @@
 typedef struct {
   const char *surface, *c_low, *c, *c_high, *c_top, *on, *on_var, *outline_var,
              *pri, *on_pri, *pri_c, *on_pri_c, *sec_c, *on_sec_c,
-             *ter, *ter_c, *on_ter_c, *wall_a, *wall_b, *wall_c;
+             *ter, *ter_c, *on_ter_c, *wall_a, *wall_b, *wall_c,
+             *bar_solid;   /* un cran plus fonce que le cadre des fenetres */
 } Palette;
 
 static const Palette LIGHT = {
   "#f5fbf7", "#eff5f1", "#e9efeb", "#e3eae5", "#dee4e0", "#171d1a", "#404945", "#bfc9c3",
   "#006b57", "#ffffff", "#a1f2d7", "#002019", "#cde8de", "#06201a",
-  "#4a6179", "#d1e4ff", "#041d33", "#9fd8c4", "#bcd3ef", "#e6efe9" };
+  "#4a6179", "#d1e4ff", "#041d33", "#9fd8c4", "#bcd3ef", "#e6efe9", "#d5ddd8" };
 static const Palette DARK = {
   "#0f1512", "#171d1a", "#1b211e", "#252b28", "#303633", "#dee4e0", "#bfc9c3", "#404945",
   "#85d6bc", "#00382c", "#005141", "#a1f2d7", "#334b43", "#cde8de",
-  "#b1c8e8", "#324960", "#d1e4ff", "#0e4a3c", "#24364c", "#121a17" };
+  "#b1c8e8", "#324960", "#d1e4ff", "#0e4a3c", "#24364c", "#121a17", "#1d2320" };
 
 static const Palette *P = &LIGHT;
 static gboolean dark = FALSE;
@@ -180,18 +183,24 @@ static const char *BASE_CSS =
   "* { font-family: 'Roboto', 'DejaVu Sans', sans-serif; }\n"
   "window.lumina { background: transparent; }\n"
   "button { background-image: none; border: none; box-shadow: none; text-shadow: none; outline: none; }\n"
-  ".bar { color: @on; font-size: 13px; font-weight: 500; padding: 0 8px 0 16px; }\n"
+  /* Barre d'etat fine, transparente sur le fond d'ecran ; opaque, un cran
+     plus foncee que le cadre des fenetres, quand une fenetre est agrandie. */
+  ".bar { color: @on; font-size: 12px; font-weight: 500; padding: 0 4px; transition: background-color 180ms; }\n"
+  ".bar.solid { background: @bar_solid; }\n"
   ".bar .date { color: @on_var; font-weight: 400; }\n"
-  ".tray { color: @on; background: transparent; border-radius: 14px; padding: 3px 12px; min-height: 0; }\n"
+  ".launch { background: transparent; color: @on; border-radius: 11px; padding: 1px 9px; min-height: 0; }\n"
+  ".launch:hover { background: alpha(@on, 0.10); }\n"
+  ".launch.open { background: @pri_c; }\n"
+  ".tray { color: @on; background: transparent; border-radius: 11px; padding: 1px 10px; min-height: 0; }\n"
   ".tray:hover, .tray.open { background: alpha(@on, 0.10); }\n"
-  /* Une ombre qui deborde de sa surface est coupee net et dessine un
-     rectangle : la marge transparente doit couvrir flou + decalage. */
-  ".dock { background: @c; border-radius: 26px; padding: 7px 10px; margin: 14px 22px 14px 22px;\n"
-  "        box-shadow: 0 3px 12px alpha(black, 0.14), 0 1px 2px alpha(black, 0.10); }\n"
-  ".slot { background: transparent; border-radius: 13px; padding: 2px; min-width: 40px; min-height: 40px; }\n"
+  /* Etagere pleine largeur facon ChromeOS : applis epinglees et ouvertes,
+     un point sous celles qui ont une fenetre, un trait sous l'active. */
+  ".shelf { background: alpha(@c, 0.92); border-top: 1px solid alpha(@on, 0.06); padding: 5px 8px 3px 8px; }\n"
+  ".slot { background: transparent; border-radius: 12px; padding: 2px; min-width: 40px; min-height: 40px; }\n"
   ".slot:hover { background: alpha(@on, 0.08); }\n"
-  ".slot.open { background: @pri_c; }\n"
-  ".sep { background: @outline_var; min-width: 1px; margin: 7px 4px; }\n"
+  ".ind { min-width: 4px; min-height: 3px; border-radius: 2px; background: transparent; }\n"
+  ".ind.on { background: @on_var; }\n"
+  ".ind.active { background: @pri; min-width: 14px; }\n"
   ".ico { border-radius: 12px; min-width: 36px; min-height: 36px; }\n"
   ".ico.big { border-radius: 14px; min-width: 46px; min-height: 46px; }\n"
   ".ico.pri { background: @pri_c; color: @on_pri_c; }\n"
@@ -200,7 +209,7 @@ static const char *BASE_CSS =
   ".ico .letter { font-size: 18px; font-weight: 600; }\n"
   ".panel { background: @c_low; color: @on; border-radius: 28px; padding: 20px; margin: 24px;\n"
   "         box-shadow: 0 4px 18px alpha(black, 0.20), 0 1px 3px alpha(black, 0.12); }\n"
-  ".panel.qs-panel { margin-top: 10px; }\n"
+  ".panel.attached { margin-top: 8px; }\n"
   ".search { background: @c_high; border-radius: 23px; padding: 0 8px 0 16px; min-height: 46px; }\n"
   ".search entry { background: transparent; border: none; box-shadow: none; color: @on; font-size: 15px;\n"
   "                caret-color: @pri; min-height: 40px; }\n"
@@ -247,7 +256,7 @@ static void apply_css(void) {
   DEF("c_top", P->c_top); DEF("on", P->on); DEF("on_var", P->on_var); DEF("outline_var", P->outline_var);
   DEF("pri", P->pri); DEF("on_pri", P->on_pri); DEF("pri_c", P->pri_c); DEF("on_pri_c", P->on_pri_c);
   DEF("sec_c", P->sec_c); DEF("on_sec_c", P->on_sec_c); DEF("ter", P->ter); DEF("ter_c", P->ter_c);
-  DEF("on_ter_c", P->on_ter_c);
+  DEF("on_ter_c", P->on_ter_c); DEF("bar_solid", P->bar_solid);
 #undef DEF
   g_string_append(s, BASE_CSS);
   gtk_css_provider_load_from_data(css, s->str, -1, NULL);
@@ -398,6 +407,7 @@ static void anchor(GtkWidget *w, gboolean t, gboolean b, gboolean l, gboolean r)
 /* Panneaux : un seul ouvert a la fois, au-dessus d'un voile cliquable  */
 /* ------------------------------------------------------------------ */
 static void refresh_qs(void);
+static void schedule_shelf(void);
 
 static void close_panels(void) {
   gtk_widget_hide(drawer); gtk_widget_hide(qs); gtk_widget_hide(scrim);
@@ -430,6 +440,21 @@ static gboolean on_panel_key(GtkWidget *w, GdkEventKey *e, gpointer d) {
 }
 
 static gboolean on_sigusr1(gpointer d) { toggle_panel(drawer); return G_SOURCE_CONTINUE; }
+
+/* SIGHUP : de nouvelles icones sont arrivees (lumina-fetch-icons). */
+static void on_apps_changed(GAppInfoMonitor *m, gpointer d);
+static gboolean on_sighup(gpointer d) {
+  /* rescan_if_needed ne regarde que la date du dossier du theme, pas celle
+     de 128x128/apps ou arrivent les icones : on reimpose le chemin de
+     recherche, ce qui force GTK a tout relire. */
+  GtkIconTheme *th = gtk_icon_theme_get_default();
+  gchar **path = NULL; gint n = 0;
+  gtk_icon_theme_get_search_path(th, &path, &n);
+  gtk_icon_theme_set_search_path(th, (const gchar **)path, n);
+  g_strfreev(path);
+  on_apps_changed(NULL, NULL);
+  return G_SOURCE_CONTINUE;
+}
 static gboolean on_sigusr2(gpointer d) { toggle_panel(qs); return G_SOURCE_CONTINUE; }
 
 /* ------------------------------------------------------------------ */
@@ -464,14 +489,16 @@ static gboolean icon_available(GIcon *gi, int px) {
   return TRUE;
 }
 
-/* Applis LuminaOS : glyphe "theme" sur conteneur tonal (facon Android).
-   Applis installees (PWA, Android, Linux) : leur propre icone.
-   A defaut d'icone : l'initiale sur conteneur tonal. */
+/* Ordre de preference :
+   1. la vraie icone de l'appli (PWA, Android, Linux, et pour les applis web
+      LuminaOS l'icone officielle telechargee par lumina-fetch-icons) ;
+   2. le glyphe LuminaOS sur conteneur tonal (hors ligne, avant telechargement) ;
+   3. l'initiale sur conteneur tonal. */
 static GtkWidget *app_icon(GDesktopAppInfo *a, gboolean big) {
   int px = big ? 46 : 36;
   char *glyph = g_desktop_app_info_get_string(a, "X-Lumina-Glyph");
   GIcon *gi = g_app_info_get_icon(G_APP_INFO(a));
-  if (!(glyph && glyph_svg(glyph)) && icon_available(gi, px)) {
+  if (icon_available(gi, px)) {
     g_free(glyph);
     GtkWidget *img = gtk_image_new_from_gicon(gi, GTK_ICON_SIZE_DIALOG);
     gtk_image_set_pixel_size(GTK_IMAGE(img), px);
@@ -631,6 +658,7 @@ static void on_apps_changed(GAppInfoMonitor *m, gpointer d) {
   g_list_free(kids);
   fill_drawer();
   on_search_changed(NULL, NULL);
+  schedule_shelf();   /* une appli epinglee vient peut-etre d'etre installee */
 }
 
 /* ------------------------------------------------------------------ */
@@ -1128,13 +1156,27 @@ static void build_wallpaper(void) {
 
 static void on_tray_clicked(GtkButton *b, gpointer d) { toggle_panel(qs); }
 
+static void on_launch_clicked(GtkButton *b, gpointer d) { toggle_panel(drawer); }
+
+/* Barre d'etat fine : lanceur et heure a gauche, reglages rapides a droite. */
+static GtkWidget *bar_box;
+
 static void build_bar(void) {
   GtkWidget *w = layer_window(GTK_LAYER_SHELL_LAYER_TOP, "lumina-bar");
   anchor(w, TRUE, FALSE, TRUE, TRUE);
   gtk_layer_auto_exclusive_zone_enable(GTK_WINDOW(w));
-  GtkWidget *h = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 10);
+  GtkWidget *h = bar_box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
   add_class(h, "bar");
-  gtk_widget_set_size_request(h, -1, 36);
+  gtk_widget_set_size_request(h, -1, 28);
+
+  launch_btn = gtk_button_new();
+  add_class(launch_btn, "launch");
+  gtk_widget_set_valign(launch_btn, GTK_ALIGN_CENTER);
+  gtk_widget_set_tooltip_text(launch_btn, "Applications (touche Windows)");
+  gtk_container_add(GTK_CONTAINER(launch_btn), icon_new("grid", R_ON, 15)->img);
+  g_signal_connect(launch_btn, "clicked", G_CALLBACK(on_launch_clicked), NULL);
+  gtk_container_add(GTK_CONTAINER(h), launch_btn);
+
   clock_l = label("", NULL, 0); date_l = label("", "date", 0);
   gtk_container_add(GTK_CONTAINER(h), clock_l);
   gtk_container_add(GTK_CONTAINER(h), date_l);
@@ -1145,10 +1187,10 @@ static void build_bar(void) {
   tray_btn = gtk_button_new();
   add_class(tray_btn, "tray");
   gtk_widget_set_valign(tray_btn, GTK_ALIGN_CENTER);
-  gtk_widget_set_tooltip_text(tray_btn, "Réglages rapides");
-  GtkWidget *t = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
-  tray_net_ic = icon_new("wifi", R_ON, 16);
-  tray_batt_ic = icon_new("svg:", R_ON, 16);
+  gtk_widget_set_tooltip_text(tray_btn, "Réglages rapides (Windows + A)");
+  GtkWidget *t = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 7);
+  tray_net_ic = icon_new("wifi", R_ON, 14);
+  tray_batt_ic = icon_new("svg:", R_ON, 14);
   batt_l = label("", NULL, 0);
   gtk_container_add(GTK_CONTAINER(t), tray_net_ic->img);
   gtk_container_add(GTK_CONTAINER(t), tray_batt_ic->img);
@@ -1161,46 +1203,301 @@ static void build_bar(void) {
   gtk_widget_show_all(w);
 }
 
-static void on_launch_clicked(GtkButton *b, gpointer d) { toggle_panel(drawer); }
+/* ------------------------------------------------------------------ */
+/* Fenetres ouvertes : protocole wlr-foreign-toplevel-management        */
+/* labwc annonce chaque fenetre, son appli, et ses etats (agrandie,     */
+/* reduite, active, plein ecran) ; on peut aussi l'activer ou la        */
+/* reduire. C'est ce qui alimente l'etagere et la teinte de la barre.   */
+/* ------------------------------------------------------------------ */
+typedef struct {
+  struct zwlr_foreign_toplevel_handle_v1 *h;
+  char *app_id, *title;
+  gboolean maximized, minimized, activated, fullscreen;
+  guint64 last_active;           /* ordre d'activation */
+} Toplevel;
 
-static void build_dock(void) {
-  GtkWidget *w = layer_window(GTK_LAYER_SHELL_LAYER_TOP, "lumina-dock");
-  anchor(w, FALSE, TRUE, FALSE, FALSE);
-  gtk_layer_auto_exclusive_zone_enable(GTK_WINDOW(w));
-  GtkWidget *h = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
-  add_class(h, "dock");
+static GList *toplevels;
+static struct wl_seat *seat;
+static guint64 activation_seq;
+static GtkWidget *shelf_apps;
+static guint shelf_idle;
 
-  launch_btn = gtk_button_new();
-  add_class(launch_btn, "slot");
-  gtk_widget_set_tooltip_text(launch_btn, "Applications");
-  gtk_container_add(GTK_CONTAINER(launch_btn), icon_new("grid", R_ON, 22)->img);
-  g_signal_connect(launch_btn, "clicked", G_CALLBACK(on_launch_clicked), NULL);
-  gtk_container_add(GTK_CONTAINER(h), launch_btn);
+static gboolean refresh_shelf(gpointer d);
+static void schedule_shelf(void) { if (!shelf_idle) shelf_idle = g_idle_add(refresh_shelf, NULL); }
 
-  GtkWidget *sep = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
-  add_class(sep, "sep");
-  gtk_container_add(GTK_CONTAINER(h), sep);
+static void tl_title(void *d, struct zwlr_foreign_toplevel_handle_v1 *h, const char *t) {
+  Toplevel *tl = d; g_free(tl->title); tl->title = g_strdup(t);
+}
+static void tl_app_id(void *d, struct zwlr_foreign_toplevel_handle_v1 *h, const char *a) {
+  Toplevel *tl = d; g_free(tl->app_id); tl->app_id = g_strdup(a);
+}
+static void tl_output_enter(void *d, struct zwlr_foreign_toplevel_handle_v1 *h, struct wl_output *o) {}
+static void tl_output_leave(void *d, struct zwlr_foreign_toplevel_handle_v1 *h, struct wl_output *o) {}
+static void tl_state(void *d, struct zwlr_foreign_toplevel_handle_v1 *h, struct wl_array *states) {
+  Toplevel *tl = d;
+  gboolean was_active = tl->activated;
+  tl->maximized = tl->minimized = tl->activated = tl->fullscreen = FALSE;
+  uint32_t *st;
+  wl_array_for_each(st, states) {
+    switch (*st) {
+      case ZWLR_FOREIGN_TOPLEVEL_HANDLE_V1_STATE_MAXIMIZED:  tl->maximized = TRUE; break;
+      case ZWLR_FOREIGN_TOPLEVEL_HANDLE_V1_STATE_MINIMIZED:  tl->minimized = TRUE; break;
+      case ZWLR_FOREIGN_TOPLEVEL_HANDLE_V1_STATE_ACTIVATED:  tl->activated = TRUE; break;
+      case ZWLR_FOREIGN_TOPLEVEL_HANDLE_V1_STATE_FULLSCREEN: tl->fullscreen = TRUE; break;
+    }
+  }
+  if (tl->activated && !was_active) tl->last_active = ++activation_seq;
+}
+static void tl_done(void *d, struct zwlr_foreign_toplevel_handle_v1 *h) {
+  Toplevel *tl = d;
+  g_debug("fenetre : app_id=%s titre=%s%s%s", tl->app_id, tl->title,
+          tl->maximized ? " [agrandie]" : "", tl->activated ? " [active]" : "");
+  schedule_shelf();
+}
+static void tl_closed(void *d, struct zwlr_foreign_toplevel_handle_v1 *h) {
+  Toplevel *tl = d;
+  toplevels = g_list_remove(toplevels, tl);
+  zwlr_foreign_toplevel_handle_v1_destroy(h);
+  g_free(tl->app_id); g_free(tl->title); g_free(tl);
+  schedule_shelf();
+}
+static void tl_parent(void *d, struct zwlr_foreign_toplevel_handle_v1 *h,
+                      struct zwlr_foreign_toplevel_handle_v1 *parent) {}
 
-  /* Applis epinglees : une par ligne dans /etc/lumina/dock.conf */
+static const struct zwlr_foreign_toplevel_handle_v1_listener tl_listener = {
+  tl_title, tl_app_id, tl_output_enter, tl_output_leave, tl_state, tl_done, tl_closed, tl_parent };
+
+static void mgr_toplevel(void *d, struct zwlr_foreign_toplevel_manager_v1 *m,
+                         struct zwlr_foreign_toplevel_handle_v1 *h) {
+  Toplevel *tl = g_new0(Toplevel, 1);
+  tl->h = h;
+  toplevels = g_list_append(toplevels, tl);
+  zwlr_foreign_toplevel_handle_v1_add_listener(h, &tl_listener, tl);
+}
+static void mgr_finished(void *d, struct zwlr_foreign_toplevel_manager_v1 *m) {
+  zwlr_foreign_toplevel_manager_v1_destroy(m);
+}
+static const struct zwlr_foreign_toplevel_manager_v1_listener mgr_listener = { mgr_toplevel, mgr_finished };
+
+static void reg_global(void *d, struct wl_registry *r, uint32_t name, const char *iface, uint32_t ver) {
+  if (strcmp(iface, zwlr_foreign_toplevel_manager_v1_interface.name) == 0) {
+    struct zwlr_foreign_toplevel_manager_v1 *m =
+      wl_registry_bind(r, name, &zwlr_foreign_toplevel_manager_v1_interface, MIN(ver, 3));
+    zwlr_foreign_toplevel_manager_v1_add_listener(m, &mgr_listener, NULL);
+  }
+}
+static void reg_remove(void *d, struct wl_registry *r, uint32_t name) {}
+static const struct wl_registry_listener reg_listener = { reg_global, reg_remove };
+
+static void init_toplevels(void) {
+  GdkDisplay *gd = gdk_display_get_default();
+  if (!GDK_IS_WAYLAND_DISPLAY(gd)) return;
+  struct wl_display *dpy = gdk_wayland_display_get_wl_display(gd);
+  seat = gdk_wayland_seat_get_wl_seat(gdk_display_get_default_seat(gd));
+  struct wl_registry *reg = wl_display_get_registry(dpy);
+  wl_registry_add_listener(reg, &reg_listener, NULL);
+  wl_display_roundtrip(dpy);
+}
+
+/* ------------------------------------------------------------------ */
+/* Etagere                                                             */
+/* ------------------------------------------------------------------ */
+typedef struct {
+  GDesktopAppInfo *app;   /* NULL : fenetre d'une appli inconnue */
+  char *key;              /* identifiant .desktop, ou app_id de la fenetre */
+  GList *wins;            /* Toplevel* de cette appli */
+} ShelfItem;
+
+static GPtrArray *shelf_items;
+
+static void shelf_item_free(gpointer p) {
+  ShelfItem *it = p;
+  if (it->app) g_object_unref(it->app);
+  g_free(it->key); g_list_free(it->wins); g_free(it);
+}
+
+/* Nom que Chromium donne a la fenetre d'une appli web ouverte par
+   "lumina-webapp URL" : chrome-<domaine>_<chemin, / devenus _>-Default.
+   Ex. https://mail.google.com -> chrome-mail.google.com__-Default
+       file:///home/lumina/   -> chrome-__home_lumina_-Default */
+static char *webapp_window_id(GAppInfo *a) {
+  const char *cmd = g_app_info_get_commandline(a);
+  if (!cmd || !g_str_has_prefix(cmd, "lumina-webapp ")) return NULL;
+  char **argv = g_strsplit(cmd + 14, " ", 2);
+  GUri *u = argv[0] ? g_uri_parse(argv[0], G_URI_FLAGS_NONE, NULL) : NULL;
+  g_strfreev(argv);
+  if (!u) return NULL;
+  const char *host = g_uri_get_host(u), *path = g_uri_get_path(u);
+  char *p = g_strdup(path && *path ? path : "/");
+  g_strdelimit(p, "/", '_');
+  char *id = g_strdup_printf("chrome-%s_%s-Default", host ? host : "", p);
+  g_free(p); g_uri_unref(u);
+  return id;
+}
+
+/* Appli d'une fenetre, parmi les applis visibles : nom de fenetre d'appli
+   web, StartupWMClass, puis identifiant .desktop. Les entrees masquees
+   (ex. chromium.desktop, remplacee par "Navigateur") sont ignorees. */
+static GDesktopAppInfo *app_for_window(const char *app_id, GList *all) {
+  if (!app_id || !*app_id) return NULL;
+  for (GList *l = all; l; l = l->next) {
+    if (!G_IS_DESKTOP_APP_INFO(l->data) || !g_app_info_should_show(l->data)) continue;
+    const char *wm = g_desktop_app_info_get_startup_wm_class(l->data);
+    char *wid = webapp_window_id(l->data);
+    gboolean hit = (wm && g_ascii_strcasecmp(wm, app_id) == 0) || g_strcmp0(wid, app_id) == 0;
+    g_free(wid);
+    if (hit) return g_object_ref(l->data);
+  }
+  char *id = g_strconcat(app_id, ".desktop", NULL);
+  GDesktopAppInfo *a = g_desktop_app_info_new(id);
+  g_free(id);
+  if (a && !g_app_info_should_show(G_APP_INFO(a))) g_clear_object(&a);
+  return a;
+}
+
+static ShelfItem *shelf_find(const char *key) {
+  for (guint i = 0; i < shelf_items->len; i++) {
+    ShelfItem *it = shelf_items->pdata[i];
+    if (g_strcmp0(it->key, key) == 0) return it;
+  }
+  return NULL;
+}
+
+static ShelfItem *shelf_add(GDesktopAppInfo *a, const char *key) {
+  ShelfItem *it = g_new0(ShelfItem, 1);
+  it->app = a; it->key = g_strdup(key);
+  g_ptr_array_add(shelf_items, it);
+  return it;
+}
+
+static Toplevel *most_recent(GList *wins) {
+  Toplevel *best = NULL;
+  for (GList *l = wins; l; l = l->next) {
+    Toplevel *t = l->data;
+    if (!best || t->last_active > best->last_active) best = t;
+  }
+  return best;
+}
+
+static Toplevel *least_recent(GList *wins) {
+  Toplevel *best = NULL;
+  for (GList *l = wins; l; l = l->next) {
+    Toplevel *t = l->data;
+    if (!best || t->last_active < best->last_active) best = t;
+  }
+  return best;
+}
+
+static void activate(Toplevel *t) {
+  if (t->minimized) zwlr_foreign_toplevel_handle_v1_unset_minimized(t->h);
+  if (seat) zwlr_foreign_toplevel_handle_v1_activate(t->h, seat);
+}
+
+/* Comme sur ChromeOS : appli fermee -> lancer ; fenetre en arriere-plan ->
+   la ramener ; fenetre deja active -> la reduire, ou passer a la suivante
+   s'il y en a plusieurs. */
+static void on_shelf_clicked(GtkButton *b, gpointer d) {
+  ShelfItem *it = d;
+  close_panels();
+  if (!it->wins) { if (it->app) launch(G_APP_INFO(it->app)); return; }
+  Toplevel *top = most_recent(it->wins);
+  if (top->activated && !top->minimized) {
+    if (g_list_length(it->wins) > 1) activate(least_recent(it->wins));
+    else zwlr_foreign_toplevel_handle_v1_set_minimized(top->h);
+  } else {
+    activate(top);
+  }
+}
+
+static GtkWidget *letter_icon(const char *name) {
+  GtkWidget *box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
+  add_class(box, "ico"); add_class(box, TONES[g_str_hash(name ? name : "") % 3]);
+  gtk_widget_set_halign(box, GTK_ALIGN_CENTER);
+  char first[8] = {0};
+  g_unichar_to_utf8(g_unichar_toupper(g_utf8_get_char(name && *name ? name : "?")), first);
+  GtkWidget *l = label(first, "letter", 0.5);
+  gtk_widget_set_vexpand(l, TRUE);
+  gtk_container_add(GTK_CONTAINER(box), l);
+  return box;
+}
+
+static gboolean refresh_shelf(gpointer d) {
+  shelf_idle = 0;
+
+  /* Les boutons pointent sur les elements : on les detruit d'abord. */
+  GList *kids = gtk_container_get_children(GTK_CONTAINER(shelf_apps));
+  for (GList *l = kids; l; l = l->next) gtk_widget_destroy(l->data);
+  g_list_free(kids);
+  g_ptr_array_set_size(shelf_items, 0);
+
+  /* 1. Applis epinglees, dans l'ordre de /etc/lumina/dock.conf */
   char *conf = read_file("/etc/lumina/dock.conf");
   char **ids = conf ? g_strsplit(conf, "\n", -1) : NULL;
   for (char **p = ids; p && *p; p++) {
     char *id = g_strstrip(*p);
-    if (*id && *id != '#') {
-      GDesktopAppInfo *a = g_desktop_app_info_new(id);
-      if (a) {
-        GtkWidget *b = gtk_button_new();
-        add_class(b, "slot");
-        gtk_widget_set_tooltip_text(b, g_app_info_get_name(G_APP_INFO(a)));
-        gtk_container_add(GTK_CONTAINER(b), app_icon(a, FALSE));
-        g_signal_connect(b, "clicked", G_CALLBACK(on_app_clicked), a);
-        gtk_container_add(GTK_CONTAINER(h), b);
-      }
-    }
+    if (!*id || *id == '#' || shelf_find(id)) continue;
+    GDesktopAppInfo *a = g_desktop_app_info_new(id);
+    if (a) shelf_add(a, id);
   }
   g_strfreev(ids); g_free(conf);
 
+  /* 2. Fenetres ouvertes : rattachees a leur appli, sinon ajoutees a la suite */
+  GList *all = g_app_info_get_all();
+  gboolean any_max = FALSE;
+  for (GList *l = toplevels; l; l = l->next) {
+    Toplevel *t = l->data;
+    if (t->maximized && !t->minimized) any_max = TRUE;
+    GDesktopAppInfo *a = app_for_window(t->app_id, all);
+    const char *key = a ? g_app_info_get_id(G_APP_INFO(a)) : t->app_id ? t->app_id : "";
+    ShelfItem *it = shelf_find(key);
+    if (it) { if (a) g_object_unref(a); }
+    else it = shelf_add(a, key);
+    it->wins = g_list_append(it->wins, t);
+  }
+  g_list_free_full(all, g_object_unref);
+
+  /* Barre d'etat opaque des qu'une fenetre est agrandie. */
+  set_class(bar_box, "solid", any_max);
+
+  for (guint i = 0; i < shelf_items->len; i++) {
+    ShelfItem *it = shelf_items->pdata[i];
+    GtkWidget *v = gtk_box_new(GTK_ORIENTATION_VERTICAL, 2);
+    GtkWidget *b = gtk_button_new();
+    add_class(b, "slot");
+    Toplevel *top = it->wins ? most_recent(it->wins) : NULL;
+    const char *name = it->app ? g_app_info_get_name(G_APP_INFO(it->app))
+                               : top && top->title ? top->title : it->key;
+    gtk_widget_set_tooltip_text(b, name);
+    gtk_container_add(GTK_CONTAINER(b), it->app ? app_icon(it->app, FALSE) : letter_icon(name));
+    g_signal_connect(b, "clicked", G_CALLBACK(on_shelf_clicked), it);
+    gtk_container_add(GTK_CONTAINER(v), b);
+
+    GtkWidget *ind = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
+    add_class(ind, "ind");
+    gboolean active = FALSE;
+    for (GList *l = it->wins; l; l = l->next) if (((Toplevel *)l->data)->activated) active = TRUE;
+    if (it->wins) add_class(ind, active ? "active" : "on");
+    gtk_widget_set_halign(ind, GTK_ALIGN_CENTER);
+    gtk_container_add(GTK_CONTAINER(v), ind);
+    gtk_container_add(GTK_CONTAINER(shelf_apps), v);
+  }
+  gtk_widget_show_all(shelf_apps);
+  return G_SOURCE_REMOVE;
+}
+
+static void build_shelf(void) {
+  GtkWidget *w = layer_window(GTK_LAYER_SHELL_LAYER_TOP, "lumina-shelf");
+  anchor(w, FALSE, TRUE, TRUE, TRUE);
+  gtk_layer_auto_exclusive_zone_enable(GTK_WINDOW(w));
+  GtkWidget *h = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
+  add_class(h, "shelf");
+  shelf_apps = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+  gtk_widget_set_hexpand(shelf_apps, TRUE);
+  gtk_widget_set_halign(shelf_apps, GTK_ALIGN_CENTER);
+  gtk_container_add(GTK_CONTAINER(h), shelf_apps);
   gtk_container_add(GTK_CONTAINER(w), h);
+  shelf_items = g_ptr_array_new_with_free_func(shelf_item_free);
+  refresh_shelf(NULL);
   gtk_widget_show_all(w);
 }
 
@@ -1217,13 +1514,14 @@ static void build_scrim(void) {
 
 static void build_drawer(void) {
   drawer = layer_window(GTK_LAYER_SHELL_LAYER_OVERLAY, "lumina-drawer");
-  anchor(drawer, FALSE, TRUE, FALSE, FALSE);
-  gtk_layer_set_margin(GTK_WINDOW(drawer), GTK_LAYER_SHELL_EDGE_BOTTOM, -14);
+  /* Le lanceur est dans le coin haut gauche : le tiroir s'ouvre dessous. */
+  anchor(drawer, TRUE, FALSE, TRUE, FALSE);
+  gtk_layer_set_margin(GTK_WINDOW(drawer), GTK_LAYER_SHELL_EDGE_LEFT, -12);
   gtk_layer_set_keyboard_mode(GTK_WINDOW(drawer), GTK_LAYER_SHELL_KEYBOARD_MODE_EXCLUSIVE);
   g_signal_connect(drawer, "key-press-event", G_CALLBACK(on_panel_key), NULL);
 
   GtkWidget *v = gtk_box_new(GTK_ORIENTATION_VERTICAL, 16);
-  add_class(v, "panel");
+  add_class(v, "panel"); add_class(v, "attached");
   gtk_widget_set_size_request(v, 560, -1);
 
   GtkWidget *s = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 10);
@@ -1272,7 +1570,7 @@ static void build_qs(void) {
   g_signal_connect(qs, "key-press-event", G_CALLBACK(on_panel_key), NULL);
 
   GtkWidget *v = gtk_box_new(GTK_ORIENTATION_VERTICAL, 12);
-  add_class(v, "panel"); add_class(v, "qs-panel");
+  add_class(v, "panel"); add_class(v, "attached");
   gtk_widget_set_size_request(v, 380, -1);
 
   GtkWidget *head = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 10);
@@ -1409,16 +1707,18 @@ int main(int argc, char **argv) {
 
   build_wallpaper();
   build_bar();
-  build_dock();
+  build_shelf();
   build_scrim();
   build_drawer();
   build_qs();
 
+  init_toplevels();
   tick(NULL);
   g_timeout_add_seconds(5, tick, NULL);
   g_timeout_add_seconds(2, mem_tick, NULL);
   g_unix_signal_add(SIGUSR1, on_sigusr1, NULL);
   g_unix_signal_add(SIGUSR2, on_sigusr2, NULL);
+  g_unix_signal_add(SIGHUP, on_sighup, NULL);
 
   gtk_main();
   return 0;

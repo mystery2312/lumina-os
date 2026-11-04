@@ -1,7 +1,10 @@
 [Desktop Entry]
 Type=Application
-Name=Vidéos
+Name=YouTube
 Exec=lumina-webapp https://www.youtube.com
+Icon=lumina-videos
+# Icone officielle, telechargee sur l'appareil par lumina-fetch-icons
+X-Lumina-IconUrl=https://www.gstatic.com/images/branding/product/2x/youtube_48dp.png
 X-Lumina-Glyph=vid
 X-Lumina-Tone=ter
 X-Lumina-Kind=Web

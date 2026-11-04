@@ -2,6 +2,9 @@
 Type=Application
 Name=Agenda
 Exec=lumina-webapp https://calendar.google.com
+Icon=lumina-agenda
+# Icone officielle, telechargee sur l'appareil par lumina-fetch-icons
+X-Lumina-IconUrl=https://www.gstatic.com/images/branding/product/2x/calendar_2020q4_48dp.png
 X-Lumina-Glyph=cal
 X-Lumina-Tone=sec
 X-Lumina-Kind=Web

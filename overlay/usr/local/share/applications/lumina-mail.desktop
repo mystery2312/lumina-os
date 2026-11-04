@@ -1,7 +1,10 @@
 [Desktop Entry]
 Type=Application
-Name=Mail
+Name=Gmail
 Exec=lumina-webapp https://mail.google.com
+Icon=lumina-mail
+# Icone officielle, telechargee sur l'appareil par lumina-fetch-icons
+X-Lumina-IconUrl=https://www.gstatic.com/images/branding/product/2x/gmail_2020q4_48dp.png
 X-Lumina-Glyph=mail
 X-Lumina-Tone=pri
 X-Lumina-Kind=Web

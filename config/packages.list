@@ -31,6 +31,8 @@ iwd
 iproute2
 iputils-ping
 ca-certificates
+# curl : telechargement des icones officielles des applis web
+curl
 
 # --- Memoire : le poste le plus important sur une machine a 2 Go ------
 zram-tools

@@ -33,13 +33,25 @@ sans aucun privilège.
 ### Tester sans écran (serveur, SSH)
 
 ```bash
-HEADLESS=1 build/30-qemu.sh &          # VM sans fenêtre
+HEADLESS=1 build/30-qemu.sh &          # VM sans fenêtre, écran en VNC
+                                       # sur 127.0.0.1:5900 (voir ci-dessous)
 build/screenshot.sh out/ecran.png      # capture de l'écran de la VM
 build/vm-run.sh "free -m"              # commande dans la VM (console série)
 build/vm-push.py fichier /chemin/vm    # copie un fichier dans la VM
 build/vm-restart-shell.sh              # relance lumina-shell sans redémarrer
 build/vm-key.sh meta_l-up f11          # touches clavier (agrandir, plein écran…)
 ```
+
+Pour voir et utiliser la VM depuis un autre ordinateur, ouvrir un tunnel
+SSH puis pointer un client VNC (TigerVNC, RealVNC…) sur `localhost:5900` :
+
+```bash
+ssh -L 5900:127.0.0.1:5900 utilisateur@serveur
+```
+
+Sans KVM, la VM est très lente (plusieurs minutes pour une page Chromium) :
+elle sert à vérifier l'interface, pas à juger la fluidité. `RAM=1536`
+ménage un hôte qui n'a que 4 Go.
 
 `RAM=1024 build/30-qemu.sh` pour éprouver le pire cas.
 
@@ -50,14 +62,30 @@ fichier.
 ## Le bureau
 
 `src/lumina-shell/` : un seul processus GTK3 + gtk-layer-shell qui dessine
-le fond d'écran, la barre d'état, la barre de tâches, le tiroir
-d'applications et les réglages rapides. Toutes les valeurs sont lues dans
+le fond d'écran, la barre d'état, l'étagère, le tiroir d'applications et
+les réglages rapides.
+
+- **Barre d'état** (haut, 28 px) : lanceur à gauche, heure, réglages
+  rapides à droite. Transparente sur le fond d'écran, elle devient opaque,
+  un cran plus foncée que le cadre des fenêtres, dès qu'une fenêtre est
+  agrandie.
+- **Étagère** (bas, pleine largeur, façon ChromeOS) : applis épinglées et
+  applis ouvertes, un point sous celles qui ont une fenêtre, un trait sous
+  l'active. Clic : lancer, ramener la fenêtre, ou la réduire si elle est
+  déjà active. Les fenêtres sont suivies par le protocole Wayland
+  `wlr-foreign-toplevel-management`.
+- **Icônes** : les applis installées gardent leur icône. Celles des applis
+  web LuminaOS (Gmail, Drive, YouTube…) ne sont **pas** distribuées dans
+  l'image (marques de leurs propriétaires) : `lumina-fetch-icons` les
+  télécharge sur l'appareil à la première connexion, depuis l'adresse
+  officielle du service. Hors ligne, un glyphe LuminaOS les remplace. Toutes les valeurs sont lues dans
 le système (batterie, Wi-Fi via iwd, volume via PipeWire, luminosité,
 RAM et zram) ; un appareil absent est masqué, jamais simulé.
 
-- Touche Windows : tiroir d'applications · Windows + A : réglages rapides
+- Touche Windows ou bouton en haut à gauche : tiroir d'applications
+- Windows + A ou clic sur l'heure/batterie : réglages rapides
 - Windows + flèches : ancrer / agrandir · Alt + Tab : changer de fenêtre
-- Applis épinglées : `/etc/lumina/dock.conf` · thème : `~/.config/lumina/theme`
+- Applis épinglées dans l'étagère : `/etc/lumina/dock.conf` · thème : `~/.config/lumina/theme`
 - Applis web (Mail, Docs…) : `/usr/local/share/applications/lumina-*.desktop`,
   ouvertes en fenêtre dédiée par un Chromium partagé
 
@@ -101,7 +129,9 @@ de machine cassée à distance.
 - [x] **M1** Session graphique, réglages mémoire 2 Go, détection GPU
 - [x] **M2a** Bureau façon Aluminium : barre d'état, barre de tâches,
       tiroir, réglages rapides, thème sombre, applis web en fenêtres
-- [ ] **M2b** Indicateur d'applis ouvertes dans la barre de tâches, Chromium
+- [x] **M2b** Étagère façon ChromeOS avec applis ouvertes, barre d'état fine
+      qui s'opacifie, vraies icônes des applis
+- [ ] **M2c** Coins arrondis en bas des fenêtres (limite de labwc), Chromium
       qui suit le thème sombre, vrai gestionnaire de fichiers, Bluetooth,
       boot BIOS pour les netbooks pré-UEFI
 - [ ] **M3** Racine en lecture seule, dm-verity, updater A/B
