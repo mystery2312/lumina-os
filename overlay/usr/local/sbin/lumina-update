@@ -34,11 +34,21 @@ if [ -s "$S/ready" ]; then status "ready $(cat "$S/ready")"; exit 0; fi
 
 CUR=$(cat /etc/lumina/version)
 status checking
-MAN=$(curl -sSL --max-time 30 -w '\n%{http_code}' "$UPDATE_URL") || fail "Serveur de mises à jour injoignable"
-CODE=${MAN##*$'\n'}; MAN=${MAN%$'\n'*}
+rm -f "$S/manifest.txt" "$S/manifest.txt.minisig"
+CODE=$(curl -sSL --max-time 30 -o "$S/manifest.txt" -w '%{http_code}' "$UPDATE_URL") \
+  || fail "Serveur de mises à jour injoignable"
 # 404 : aucune version publiee pour l'instant, ce n'est pas une panne.
 if [ "$CODE" = 404 ]; then status "uptodate $CUR"; exit 0; fi
 [ "$CODE" = 200 ] || fail "Serveur de mises à jour : erreur $CODE"
+
+# Signature du manifeste : seule la cle de LuminaOS peut annoncer une
+# version. Le manifeste contient l'empreinte de l'image : image verifiee
+# a son tour pendant le telechargement.
+curl -fsSL --max-time 30 -o "$S/manifest.txt.minisig" "$UPDATE_URL.minisig" \
+  || fail "Signature de la mise à jour introuvable"
+minisign -V -q -p /etc/lumina/update.pub -m "$S/manifest.txt" -x "$S/manifest.txt.minisig" \
+  || fail "Signature invalide : mise à jour refusée"
+MAN=$(cat "$S/manifest.txt")
 get() { printf '%s\n' "$MAN" | sed -n "s/^$1=//p" | head -1; }
 NEW=$(get VERSION); FILE=$(get ROOT_FILE); SUM=$(get ROOT_SHA256); BYTES=$(get ROOT_BYTES)
 [ -n "$NEW" ] && [ -n "$FILE" ] && [ -n "$SUM" ] && [ -n "$BYTES" ] || fail "Manifeste de mise à jour invalide"
@@ -77,6 +87,8 @@ mkdir -p "$M/root" "$M/esp"
 # demarree.
 mount "$ESP" "$M/esp"
 rm -f "$M/esp/loader/entries/lumina-$T.conf" "$M/esp/loader/entries/lumina-$T+"*.conf
+GENV="$M/esp/grub/grubenv"
+[ -f "$GENV" ] && grub-editenv "$GENV" unset try tries
 sync
 
 # --- Telechargement -> decompression -> partition ---------------------------
@@ -116,6 +128,11 @@ linux    /lumina-$T/vmlinuz
 initrd   /lumina-$T/initrd.img
 options  root=PARTUUID=$TUUID rw rootwait quiet loglevel=3 panic=10 ${EXTRA}
 EOF
+# Demarrage BIOS : meme principe, 3 essais (voir /usr/share/lumina/grub.cfg)
+if [ -f "$GENV" ]; then
+  grub-editenv "$GENV" set "uuid_$T=$TUUID" "extra=${EXTRA% }"
+  grub-editenv "$GENV" set try=$T tries=3
+fi
 sync
 
 echo "$NEW" > "$S/ready"; chmod 644 "$S/ready"

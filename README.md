@@ -145,8 +145,10 @@ Réglage manuel dans `/etc/lumina/session.conf`.
 
 ## Essayer, puis installer
 
-L'image démarre **depuis une clé USB** (16 Go minimum, PC en UEFI, Secure
-Boot désactivé pour l'instant) sans rien modifier sur le PC. Écrire
+L'image démarre **depuis une clé USB** (16 Go minimum) sans rien modifier
+sur le PC : PC récents en UEFI, **Secure Boot activé ou non** (shim signé
+par Microsoft → systemd-boot et noyau signés par Debian), et vieux PC sans
+UEFI (BIOS : GRUB, même logique A/B). Écrire
 l'image sur la clé : Rufus en mode DD ou balenaEtcher (Windows, Mac),
 Etcher ou GNOME Disques (Linux).
 
@@ -160,9 +162,9 @@ tiroir tant qu'on tourne depuis la clé. L'installateur (`lumina-install`,
 - crée ESP 512 Mo + ROOT-A 4 Go + ROOT-B 4 Go + STATE (le reste), avec des
   identifiants de partitions **tirés au hasard** (la clé et le disque
   installé ne se confondent jamais au démarrage) ;
-- copie le système (sans les fichiers de l'essai), installe systemd-boot
-  et l'enregistre dans le firmware (`efibootmgr`), avec le chemin de
-  secours `EFI/BOOT/BOOTX64.EFI`.
+- copie le système (sans les fichiers de l'essai), installe shim +
+  systemd-boot et les enregistre dans le firmware (`efibootmgr`), avec le
+  chemin de secours `EFI/BOOT/BOOTX64.EFI`, et GRUB pour les PC en BIOS.
 
 Une fois installé, l'installateur disparaît (`/etc/lumina/installed`).
 La clé reste utilisable pour essayer ou installer ailleurs.
@@ -179,7 +181,9 @@ démarrage puis toutes les 6 heures (`lumina-update.timer`), avec une
 priorité minimale pour rester utilisable :
 
 1. lecture du manifeste de la dernière Release GitHub
-   (`releases/latest/download/manifest.txt`) ;
+   (`releases/latest/download/manifest.txt`) et **vérification de sa
+   signature** (minisign, clé publique `/etc/lumina/update.pub`) : seule
+   la clé de LuminaOS peut annoncer une version ;
 2. téléchargement de l'image système compressée, écrite dans la partition
    système **inactive** (B si l'on tourne sur A), empreinte SHA-256 vérifiée
    au passage ; l'entrée de démarrage de cette partition est retirée
@@ -201,14 +205,20 @@ Publier une version :
 
 ```bash
 DEV=0 build/10-rootfs.sh            # image sans accès root
-build/40-release.sh                 # image compressée + manifest.txt
+build/40-release.sh                 # image compressée + manifest.txt signé
 build/40-release.sh --publish       # Release GitHub (refusé si DEV=1)
 ```
+
+La clé privée de signature (`~/.config/lumina-os/update.key`, ou
+`LUMINA_SIGN_KEY`) n'est **jamais** dans le dépôt : à sauvegarder à part.
+Sans elle, plus aucune mise à jour ne peut être publiée pour les machines
+existantes.
 
 ## Disposition du disque (calquée sur ChromeOS)
 
 ```
-p1  ESP      128 Mo  FAT32   systemd-boot + vmlinuz + initrd
+p5  BIOS       1 Mo  -       GRUB pour les PC sans UEFI (secteurs 34-2047)
+p1  ESP      128 Mo  FAT32   shim, systemd-boot, GRUB, vmlinuz + initrd
 p2  ROOT-A  3072 Mo  ext4    système (lecture seule et vérifié : jalon M3b)
 p3  ROOT-B  3072 Mo  ext4    cible des mises à jour A/B
 p4  STATE   le reste ext4    /var/lib/lumina : profil, réglages, données
@@ -227,11 +237,14 @@ de machine cassée à distance.
 - [x] **M2b** Étagère façon ChromeOS avec applis ouvertes, barre d'état fine
       qui s'opacifie, vraies icônes des applis
 - [x] **M2c** Fichiers, Terminal, Linux en conteneur façon Crostini
-- [ ] **M2d** Coins arrondis en bas des fenêtres (limite de labwc), Chromium
-      qui suit le thème sombre, Bluetooth,
-      boot BIOS pour les netbooks pré-UEFI
+- [x] **M2d** Premier démarrage (langue, Wi-Fi, compte), verrouillage,
+      Réglages, Bluetooth, thème sombre jusque dans Chromium, notifications,
+      captures d'écran
+- [x] **M2e** Secure Boot, démarrage BIOS des PC pré-UEFI
+- [ ] **M2f** Coins arrondis en bas des fenêtres (limite de labwc)
 - [x] **M3** Mises à jour A/B depuis GitHub, retour automatique, testé
-- [ ] **M3b** Racine en lecture seule et vérifiée (dm-verity), images signées
+- [x] **M3a** Mises à jour signées (minisign)
+- [ ] **M3b** Racine en lecture seule et vérifiée (dm-verity)
 - [ ] **M4** Apps Android : lanceur et tiroir prêts, à valider sur une vraie
       machine de 4 Go (Waydroid ne tourne pas dans la VM de test)
 - [ ] **M5** Couche IA : API distante par défaut, `llama.cpp` + modèle 0,6 B

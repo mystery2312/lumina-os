@@ -71,6 +71,36 @@ else
   mcopy -i "$W/esp.img" /usr/lib/systemd/boot/efi/systemd-bootx64.efi ::/EFI/BOOT/BOOTX64.EFI
   echo ">> sans Secure Boot (paquets signes absents)"
 fi
+# --- PC sans UEFI : GRUB (BIOS) sur la meme ESP ---------------------
+# boot.img dans le MBR -> core.img dans la petite partition "BIOS boot"
+# (secteurs 34-2047, avant l'ESP) -> /grub/grub.cfg sur l'ESP, qui suit la
+# meme logique A/B que systemd-boot (voir usr/share/lumina/grub.cfg).
+G="$SRC/usr/lib/grub/i386-pc"
+BIOS_GRUB=0
+if $SUDO test -f "$G/boot.img"; then
+  BIOS_GRUB=1
+  # "(,gpt1)" : la premiere partition du disque qui a demarre
+  $SUDO chroot "$SRC" grub-mkimage -O i386-pc -o /tmp/core.img -p '(,gpt1)/grub' \
+    biosdisk part_gpt fat
+  $SUDO mv "$SRC/tmp/core.img" "$W/core.img"
+  $SUDO cp "$G/boot.img" "$W/boot.img"
+  $SUDO cp -r "$G" "$W/i386-pc"
+  $SUDO chown -R "$(id -u):$(id -g)" "$W/core.img" "$W/boot.img" "$W/i386-pc"
+  rm -f "$W"/i386-pc/*.img "$W"/i386-pc/*.image "$W"/i386-pc/*.module 2>/dev/null || true
+  CORE_SECTORS=$(( ($(stat -c %s "$W/core.img") + 511) / 512 ))
+  [ "$CORE_SECTORS" -le 2013 ] || { echo "core.img trop gros ($CORE_SECTORS secteurs)"; exit 1; }
+  mmd -i "$W/esp.img" ::/grub
+  mcopy -i "$W/esp.img" -s "$W/i386-pc" ::/grub/
+  $SUDO cp "$SRC/usr/share/lumina/grub.cfg" "$W/grub.cfg"; $SUDO chown "$(id -u):$(id -g)" "$W/grub.cfg"
+  mcopy -i "$W/esp.img" "$W/grub.cfg" ::/grub/grub.cfg
+  # grubenv : bloc de 1024 octets que GRUB reecrit sur place
+  { printf '# GRUB Environment Block\ngood=a\nuuid_a=%s\nuuid_b=%s\nextra=%s\n' \
+      "$UUID_ROOT_A" "$UUID_ROOT_B" "$KERNEL_CMDLINE_EXTRA"; } > "$W/grubenv"
+  n=$(stat -c %s "$W/grubenv"); head -c $((1024 - n)) /dev/zero | tr '\0' '#' >> "$W/grubenv"
+  mcopy -i "$W/esp.img" "$W/grubenv" ::/grub/grubenv
+  echo ">> BIOS : GRUB ($CORE_SECTORS secteurs)"
+fi
+
 # Un noyau par emplacement (A, B) : mettre a jour B ne touche pas au noyau
 # de A, vers lequel on peut toujours revenir.
 mcopy -i "$W/esp.img" "$W/vmlinuz"    ::/lumina-a/vmlinuz
@@ -98,13 +128,26 @@ mke2fs -q -t ext4 -L LUMINA-STATE -E lazy_itable_init=0,lazy_journal_init=0 "$W/
 echo ">> assemblage $IMAGE"
 rm -f "$IMAGE"; truncate -s "${TOTAL_MB}M" "$IMAGE"
 sgdisk -Z "$IMAGE" >/dev/null 2>&1 || true
-sgdisk \
+sgdisk -a 1 \
+  -n "5:34:2047"                        -t 5:ef02 -c 5:BIOS \
   -n "1:${ESP_START}M:+${ESP_MB}M"      -t 1:ef00 -c 1:ESP    -u "1:$UUID_ESP" \
   -n "2:${ROOTA_START}M:+${ROOT_MB}M"   -t 2:8304 -c 2:ROOT-A -u "2:$UUID_ROOT_A" \
   -n "3:${ROOTB_START}M:+${ROOT_MB}M"   -t 3:8304 -c 3:ROOT-B -u "3:$UUID_ROOT_B" \
   -n "4:${STATE_START}M:+${STATE_MB}M"  -t 4:8300 -c 4:STATE  -u "4:$UUID_STATE" \
   "$IMAGE" >/dev/null
 
+if [ "$BIOS_GRUB" = 1 ]; then
+  # boot.img (440 premiers octets : la table de partitions reste) et ou
+  # trouver core.img : LBA 34 ; puis la liste de blocs de core.img (suite
+  # de core.img : LBA 35, CORE_SECTORS-1 secteurs). Ce que fait
+  # grub-bios-setup, ici sur un simple fichier.
+  le() { python3 -c "import struct,sys; sys.stdout.buffer.write(struct.pack('<'+sys.argv[1], int(sys.argv[2])))" "$1" "$2"; }
+  le Q 34 | dd of="$W/boot.img" bs=1 seek=$((0x5c)) conv=notrunc status=none
+  le Q 35 | dd of="$W/core.img" bs=1 seek=$((0x1f4)) conv=notrunc status=none
+  le H $((CORE_SECTORS - 1)) | dd of="$W/core.img" bs=1 seek=$((0x1fc)) conv=notrunc status=none
+  dd if="$W/boot.img" of="$IMAGE" bs=440 count=1 conv=notrunc status=none
+  dd if="$W/core.img" of="$IMAGE" bs=512 seek=34 conv=notrunc status=none
+fi
 dd if="$W/esp.img"   of="$IMAGE" bs=1M seek=$ESP_START   conv=notrunc status=none
 dd if="$W/root.img"  of="$IMAGE" bs=1M seek=$ROOTA_START conv=notrunc status=none
 dd if="$W/state.img" of="$IMAGE" bs=1M seek=$STATE_START conv=notrunc status=none

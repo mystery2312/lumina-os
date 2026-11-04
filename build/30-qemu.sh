@@ -28,11 +28,19 @@ fi
 ACCEL=$([ -w /dev/kvm ] && echo kvm || echo tcg)
 PC_DISK=out/disque-pc.img
 
-ARGS=(
-  -machine q35,accel=$ACCEL$([ "${SECUREBOOT:-0}" = 1 ] && echo ",smm=on") -cpu max -smp 2 -m "$RAM"
-  $([ "${SECUREBOOT:-0}" = 1 ] && echo "-global driver=cfi.pflash01,property=secure,value=on")
+# BIOS=1 : PC ancien sans UEFI (SeaBIOS)
+if [ "${BIOS:-0}" = 1 ]; then FW=(); else FW=(
   -drive if=pflash,format=raw,unit=0,readonly=on,file="$OVMF"
   -drive if=pflash,format=raw,unit=1,file="$VARS"
+); fi
+SB_MACHINE=""; SB_ARGS=()
+if [ "${SECUREBOOT:-0}" = 1 ]; then
+  SB_MACHINE=",smm=on"; SB_ARGS=(-global driver=cfi.pflash01,property=secure,value=on)
+fi
+ARGS=(
+  -machine "q35,accel=$ACCEL$SB_MACHINE" -cpu max -smp 2 -m "$RAM"
+  "${SB_ARGS[@]}"
+  "${FW[@]}"
   -device virtio-net-pci,netdev=n0 -netdev user,id=n0
   -device virtio-tablet-pci -device virtio-keyboard-pci
 )

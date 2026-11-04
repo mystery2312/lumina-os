@@ -44,10 +44,20 @@ EOF
 echo ">> $D : $(du -h "$ZST" | cut -f1) compresse"
 cat "$D/manifest.txt"
 
+# Signature : le manifeste (version + empreinte de l'image) est signe avec
+# la cle privee, gardee HORS du depot. Les machines le verifient avec la
+# cle publique /etc/lumina/update.pub avant d'ecrire quoi que ce soit.
+KEY=${LUMINA_SIGN_KEY:-$HOME/.config/lumina-os/update.key}
+[ -f "$KEY" ] || { echo "cle de signature absente : $KEY"; exit 1; }
+rm -f "$D/manifest.txt.minisig"
+minisign -S -s "$KEY" -m "$D/manifest.txt" -t "LuminaOS $VERSION" </dev/null
+minisign -V -q -p overlay/etc/lumina/update.pub -m "$D/manifest.txt"
+echo ">> manifeste signe"
+
 if [ "${1:-}" = "--publish" ]; then
   # Une image de developpement a un mot de passe root connu : jamais publiee.
   [ "$BUILD_DEV" = 0 ] || { echo "REFUS : image de developpement (DEV=$BUILD_DEV). Reconstruire avec DEV=0."; exit 1; }
-  gh release create "v$VERSION" "$D/manifest.txt" "$ZST" \
+  gh release create "v$VERSION" "$D/manifest.txt" "$D/manifest.txt.minisig" "$ZST" \
     --title "LuminaOS $VERSION" --latest \
     --notes "Mise à jour système LuminaOS $VERSION, installée automatiquement sur les machines LuminaOS."
 fi

@@ -10,7 +10,10 @@ Before=boot-complete.target
 [Service]
 Type=oneshot
 RemainAfterExit=yes
-ExecStart=/bin/sh -c 'sleep 20; systemctl is-active --quiet lumina-session'
+ExecStart=/usr/local/sbin/lumina-boot-ok
 
 [Install]
+# boot-complete.target n'existe qu'au demarrage UEFI avec essais comptes ;
+# en BIOS, le service valide l'emplacement dans grubenv (lumina-boot-ok).
 RequiredBy=boot-complete.target
+WantedBy=graphical.target

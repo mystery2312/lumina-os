@@ -63,7 +63,12 @@ shim-signed
 shim-helpers-amd64-signed
 systemd-boot-efi-amd64-signed
 
+# --- PC anciens sans UEFI (BIOS) : GRUB, meme logique A/B ---------------
+grub-pc-bin
+
 # --- Mises a jour A/B ---------------------------------------------------
+# minisign : verifie la signature du manifeste avant toute ecriture.
+minisign
 # systemd-boot : systemd-bless-boot valide un demarrage reussi (sinon
 # retour automatique a l'ancienne version) ; zstd : images compressees.
 systemd-boot

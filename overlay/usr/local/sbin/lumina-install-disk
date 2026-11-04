@@ -65,7 +65,10 @@ sgdisk -Z "$TARGET" >/dev/null 2>&1 || true
 
 uuid() { cat /proc/sys/kernel/random/uuid; }
 U_ESP=$(uuid); U_A=$(uuid); U_B=$(uuid); U_S=$(uuid)
-sgdisk \
+# Partition 5 "BIOS boot" (secteurs 34-2047, avant l'ESP) : GRUB pour les
+# PC sans UEFI. Creee en premier, sinon les suivantes prendraient sa place.
+sgdisk -a 1 \
+  -n "5:34:2047"         -t 5:ef02 -c 5:BIOS \
   -n "1:1M:+${ESP_MB}M"  -t 1:ef00 -c 1:ESP    -u "1:$U_ESP" \
   -n "2:0:+${ROOT_MB}M"  -t 2:8304 -c 2:ROOT-A -u "2:$U_A" \
   -n "3:0:+${ROOT_MB}M"  -t 3:8304 -c 3:ROOT-B -u "3:$U_B" \
@@ -144,6 +147,14 @@ linux    /lumina-a/vmlinuz
 initrd   /lumina-a/initrd.img
 options  root=PARTUUID=$U_A rw rootwait quiet loglevel=3 panic=10
 EOF
+# PC sans UEFI (ou disque deplace plus tard vers un tel PC) : GRUB.
+if [ -f /usr/lib/grub/i386-pc/boot.img ]; then
+  grub-install --target=i386-pc --boot-directory="$M/esp" --modules="part_gpt fat" "$TARGET" \
+    || { [ -d /sys/firmware/efi ] || fail "Installation du démarrage BIOS impossible."; }
+  cp /usr/share/lumina/grub.cfg "$M/esp/grub/grub.cfg"
+  grub-editenv "$M/esp/grub/grubenv" create
+  grub-editenv "$M/esp/grub/grubenv" set good=a "uuid_a=$U_A" "uuid_b=$U_B" "extra="
+fi
 # Entree "LuminaOS" en tete de l'ordre de demarrage du firmware.
 if [ -d /sys/firmware/efi/efivars ]; then
   efibootmgr -q -c -d "$TARGET" -p 1 -L "LuminaOS" -l '\EFI\luminaos\shimx64.efi' \

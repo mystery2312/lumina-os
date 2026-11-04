@@ -1,0 +1,25 @@
+#!/bin/bash
+# Demarrage reussi (bureau lance et vivant 20 s apres) : appele par
+# lumina-boot-ok.service, avant boot-complete.target.
+#   UEFI : systemd-bless-boot valide l'entree de systemd-boot.
+#   BIOS : on valide ici l'emplacement dans grubenv (good=..., plus d'essai).
+# On met grubenv a jour dans les deux cas : un disque deplace d'un PC UEFI
+# vers un PC BIOS demarre ainsi sur la bonne version.
+set -euo pipefail
+export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+sleep 20
+systemctl is-active --quiet lumina-session
+ROOTSRC=$(findmnt -no SOURCE /)
+DISK=/dev/$(lsblk -no PKNAME "$ROOTSRC" | head -1 | tr -d ' ')
+case "$(lsblk -no PARTLABEL "$ROOTSRC" | tr -d ' ')" in
+  ROOT-A) SLOT=a ;; ROOT-B) SLOT=b ;; *) exit 0 ;;
+esac
+ESP=$(lsblk -lnpo NAME,PARTLABEL "$DISK" | awk '$2 == "ESP" { print $1 }')
+[ -b "$ESP" ] || exit 0
+M=$(mktemp -d /run/lumina-boot-ok.XXXXXX)
+trap 'mountpoint -q "$M" && umount "$M"; rmdir "$M"' EXIT
+mount "$ESP" "$M" || exit 0   # sans effet sur la validation UEFI
+if [ -f "$M/grub/grubenv" ]; then
+  grub-editenv "$M/grub/grubenv" set good=$SLOT || true
+  grub-editenv "$M/grub/grubenv" unset try tries || true
+fi
