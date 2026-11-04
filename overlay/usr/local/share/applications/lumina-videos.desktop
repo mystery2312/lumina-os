@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=Vidéos
+Exec=lumina-webapp https://www.youtube.com
+X-Lumina-Glyph=vid
+X-Lumina-Tone=ter
+X-Lumina-Kind=Web

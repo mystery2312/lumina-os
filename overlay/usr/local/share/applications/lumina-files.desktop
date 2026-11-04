@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=Fichiers
+Exec=lumina-webapp file:///home/lumina/
+X-Lumina-Glyph=files
+X-Lumina-Tone=sec
+X-Lumina-Kind=Système

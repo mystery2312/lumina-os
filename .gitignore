@@ -1,0 +1,2 @@
+# Tout ce qui est genere par build/ : rootfs, images disque, binaires, logs.
+/out/

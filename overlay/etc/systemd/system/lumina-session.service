@@ -1,0 +1,32 @@
+[Unit]
+Description=Session LuminaOS (labwc + lumina-shell)
+After=systemd-user-sessions.service plymouth-quit-wait.service seatd.service
+Wants=seatd.service var-lib-lumina.mount
+# La partition d'etat peut etre lente a monter (fsck au demarrage) : on
+# l'attend, puis on retablit ses droits avant que Chromium n'y ecrive.
+After=var-lib-lumina.mount
+Conflicts=getty@tty1.service
+After=getty@tty1.service
+
+[Service]
+Type=simple
+User=lumina
+PAMName=login
+TTYPath=/dev/tty1
+TTYReset=yes
+TTYVHangup=yes
+StandardInput=tty-fail
+StandardOutput=journal
+StandardError=journal
+UtmpIdentifier=tty1
+UtmpMode=user
+Environment=XDG_SESSION_TYPE=wayland
+Environment=XDG_CURRENT_DESKTOP=lumina
+ExecStartPre=+/usr/bin/systemd-tmpfiles --create /etc/tmpfiles.d/lumina.conf
+# lumina-session choisit le rendu (GPU ou logiciel) puis lance labwc.
+ExecStart=/usr/local/bin/lumina-session
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=graphical.target

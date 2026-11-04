@@ -1,0 +1,33 @@
+#!/bin/sh
+# Lance le bureau : labwc (fenetres) + lumina-shell (tout le reste, via
+# /etc/xdg/labwc/autostart).
+#
+# Beaucoup de vieux GPU (et la carte virtuelle de QEMU) n'ont pas
+# d'acceleration GLES2 utilisable : wlroots plante alors au demarrage.
+# Strategie : on tente le GPU ; si le compositeur meurt dans les 20 s, on
+# note "pixman" (rendu logiciel) pour cette machine et systemd relance.
+STATE=/var/lib/lumina/renderer
+[ -r /etc/lumina/session.conf ] && . /etc/lumina/session.conf
+R="${LUMINA_RENDERER:-auto}"
+[ "$R" = auto ] && [ -r "$STATE" ] && R=$(cat "$STATE")
+
+export XDG_CURRENT_DESKTOP=lumina:wlroots
+export XKB_DEFAULT_LAYOUT="${LUMINA_KEYMAP:-fr}"
+export GDK_BACKEND=wayland
+# Langue de l'interface. Chromium la lit dans LANGUAGE sous Linux (il
+# ignore --lang). C.UTF-8 existe toujours : pas besoin de generer de locale.
+export LANG=C.UTF-8 LANGUAGE="${LUMINA_LANG:-fr}"
+
+if [ "$R" = pixman ]; then
+  export WLR_RENDERER=pixman
+  exec labwc
+fi
+
+start=$(date +%s)
+labwc
+rc=$?
+if [ "$R" = auto ] && [ "$rc" -ne 0 ] && [ $(( $(date +%s) - start )) -lt 20 ]; then
+  echo pixman > "$STATE"
+  echo "lumina-session: GPU sans GLES2 utilisable, rendu logiciel desormais" >&2
+fi
+exit "$rc"

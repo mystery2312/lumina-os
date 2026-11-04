@@ -1,0 +1,16 @@
+[Unit]
+Description=Active MGLRU (recuperation memoire multi-generationnelle)
+DefaultDependencies=no
+After=sysinit.target
+Before=basic.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+# MGLRU remplace l'algorithme LRU historique du noyau. Sur une machine
+# sous pression memoire, il reduit nettement les blocages et les OOM.
+ExecStart=/bin/sh -c 'echo y > /sys/kernel/mm/lru_gen/enabled 2>/dev/null || true'
+ExecStart=/bin/sh -c 'echo 1000 > /sys/kernel/mm/lru_gen/min_ttl_ms 2>/dev/null || true'
+
+[Install]
+WantedBy=basic.target

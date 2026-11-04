@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=Photos
+Exec=lumina-webapp https://photos.google.com
+X-Lumina-Glyph=photo
+X-Lumina-Tone=ter
+X-Lumina-Kind=Web

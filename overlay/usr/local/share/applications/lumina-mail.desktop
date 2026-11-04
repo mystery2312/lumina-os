@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=Mail
+Exec=lumina-webapp https://mail.google.com
+X-Lumina-Glyph=mail
+X-Lumina-Tone=pri
+X-Lumina-Kind=Web

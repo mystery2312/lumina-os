@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=Assistant
+Exec=lumina-webapp https://claude.ai
+X-Lumina-Glyph=ai
+X-Lumina-Tone=sec
+X-Lumina-Kind=Web

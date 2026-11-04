@@ -1,0 +1,47 @@
+# --- Noyau et init ----------------------------------------------------
+linux-image-amd64
+systemd-sysv
+udev
+dbus-broker
+systemd-timesyncd
+systemd-resolved
+
+# --- Graphique : wlroots, pas de X11 ----------------------------------
+# labwc gere les fenetres (~10 Mo) ; lumina-shell (compile depuis src/)
+# dessine le bureau : fond, barre d'etat, barre de taches, tiroir, reglages.
+labwc
+seatd
+libgtk-layer-shell0
+librsvg2-common
+fonts-roboto
+brightnessctl
+# polkit autorise "Eteindre/Redemarrer" depuis la session active
+polkitd
+libgl1-mesa-dri
+libglx-mesa0
+fonts-dejavu-core
+
+# --- Le navigateur = l'OS ---------------------------------------------
+chromium
+# traductions de l'interface (on ne garde que fr et en-US, cf. lumina-setup)
+chromium-l10n
+
+# --- Reseau : iwd + networkd (~8 Mo contre ~60 pour NetworkManager) ---
+iwd
+iproute2
+iputils-ping
+ca-certificates
+
+# --- Memoire : le poste le plus important sur une machine a 2 Go ------
+zram-tools
+
+# --- Audio ------------------------------------------------------------
+pipewire
+pipewire-pulse
+wireplumber
+
+# --- Outils de survie / debug -----------------------------------------
+e2fsprogs
+dosfstools
+less
+nano

@@ -1,0 +1,22 @@
+#!/bin/sh
+# Apps Android a la demande, via Waydroid (conteneur LXC + LineageOS).
+# Volontairement NON installe dans l'image : Waydroid coute ~500 Mo de RAM
+# une fois demarre, ce qui est inacceptable en permanence sur 2 Go. On le
+# telecharge et on le demarre seulement quand l'utilisateur ouvre une app.
+set -eu
+
+if ! command -v waydroid >/dev/null 2>&1; then
+  echo "Waydroid n'est pas installe. Installation (~500 Mo) :"
+  echo "  sudo lumina-android --install"
+  [ "${1:-}" = "--install" ] || exit 1
+  apt-get update
+  apt-get install -y waydroid
+  waydroid init -s GAPPS   # -s VANILLA pour une image sans services Google
+  exit 0
+fi
+
+# Demarrage paresseux du conteneur, puis de l'app demandee.
+systemctl is-active --quiet waydroid-container || systemctl start waydroid-container
+waydroid session status >/dev/null 2>&1 || (waydroid session start &) && sleep 3
+[ -n "${1:-}" ] && exec waydroid app launch "$1"
+exec waydroid show-full-ui

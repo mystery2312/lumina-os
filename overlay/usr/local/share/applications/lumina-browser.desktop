@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=Navigateur
+Exec=lumina-browser
+X-Lumina-Glyph=web
+X-Lumina-Tone=pri
+X-Lumina-Kind=Web

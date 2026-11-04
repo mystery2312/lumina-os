@@ -1,0 +1,55 @@
+#!/bin/sh
+# Finalisation du rootfs. Execute une seule fois, dans le chroot, par
+# mmdebstrap. Doit rester idempotent.
+set -eu
+
+# Utilisateur de session, sans mot de passe : la machine se verrouille via
+# le compte Google dans le navigateur, pas via une console (modele ChromeOS).
+if ! id lumina >/dev/null 2>&1; then
+  useradd -m -s /bin/sh -G video,input,render,audio,netdev lumina
+  passwd -d lumina
+fi
+install -d -o lumina -g lumina /var/lib/lumina /var/lib/lumina/browser
+
+# Un mot de passe root connu, pour le debug en phase de dev.
+# A SUPPRIMER avant toute diffusion de l'image.
+echo 'root:lumina' | chpasswd
+
+# dbus-broker remplace dbus-daemon : meme protocole, ~2x moins de RAM et
+# un demarrage plus rapide. Le variant 'important' peut tirer dbus-daemon,
+# on s'assure donc explicitement de qui tient le bus systeme.
+if [ -f /lib/systemd/system/dbus-broker.service ]; then
+  systemctl disable dbus.service 2>/dev/null || true
+  systemctl enable dbus-broker.service 2>/dev/null || true
+fi
+
+systemctl set-default graphical.target
+systemctl enable lumina-session.service
+systemctl enable lumina-mglru.service
+systemctl enable seatd.service
+# ifupdown arrive avec le variant 'important' et ferait doublon avec networkd.
+systemctl disable networking.service 2>/dev/null || true
+systemctl enable systemd-networkd.service
+systemctl enable systemd-resolved.service
+systemctl enable iwd.service
+systemctl enable zramswap.service 2>/dev/null || true
+
+# Console de secours : Alt+F2 donne un root connecte automatiquement.
+mkdir -p /etc/systemd/system/getty@tty2.service.d
+cat > /etc/systemd/system/getty@tty2.service.d/autologin.conf <<'UNIT'
+[Service]
+ExecStart=
+ExecStart=-/sbin/agetty --autologin root --noclear %I $TERM
+UNIT
+
+# Pas de swap sur disque : la partition d'etat n'en a pas, zram suffit.
+: > /etc/fstab
+cat >> /etc/fstab <<'FSTAB'
+PARTUUID=44444444-4444-4444-4444-444444444444 /var/lib/lumina ext4 defaults,noatime,nofail 0 2
+FSTAB
+
+# Allege : pas de doc, pas de locales inutiles sur une eMMC de 16 Go.
+# Chromium : traductions francaise et anglaise uniquement (~40 Mo gagnes).
+find /usr/lib/chromium/locales -name '*.pak' ! -name 'fr.pak' ! -name 'en-US.pak' -delete 2>/dev/null || true
+rm -rf /usr/share/doc/* /usr/share/man/* /var/cache/apt/archives/*.deb
+echo "lumina-setup: termine"

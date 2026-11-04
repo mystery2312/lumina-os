@@ -1,0 +1,7 @@
+# zram-tools : swap compresse en RAM.
+# zstd compresse ~3:1 sur des pages de navigateur, pour un cout CPU faible.
+ALGO=zstd
+# 150% de la RAM physique : sur 2 Go cela donne 3 Go de swap qui occupent
+# ~1 Go reel. C'est ce qui permet de garder une dizaine d'onglets ouverts.
+PERCENT=150
+PRIORITY=100

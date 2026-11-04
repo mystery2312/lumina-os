@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=Cartes
+Exec=lumina-webapp https://maps.google.com
+X-Lumina-Glyph=map
+X-Lumina-Tone=pri
+X-Lumina-Kind=Web

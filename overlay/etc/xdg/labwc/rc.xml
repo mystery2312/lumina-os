@@ -1,0 +1,38 @@
+<?xml version="1.0"?>
+<!-- Configuration labwc de LuminaOS. Les fenetres sont dessinees par les
+     applications elles-memes (Chromium dessine ses onglets dans la barre de
+     titre, comme sur la maquette) ; labwc ne fait que les placer. -->
+<labwc_config>
+  <core>
+    <decoration>client</decoration>
+    <gap>8</gap>
+  </core>
+  <placement>
+    <policy>center</policy>
+  </placement>
+  <theme>
+    <name>Lumina</name>
+    <cornerRadius>12</cornerRadius>
+    <dropShadows>yes</dropShadows>
+    <font place="ActiveWindow"><name>Roboto</name><size>10</size><weight>bold</weight></font>
+    <font place="InactiveWindow"><name>Roboto</name><size>10</size></font>
+    <font place="OnScreenDisplay"><name>Roboto</name><size>10</size></font>
+  </theme>
+  <windowSwitcher show="yes" preview="no" outlines="no">
+    <fields><field content="title" width="100%" /></fields>
+  </windowSwitcher>
+  <keyboard>
+    <default />
+    <!-- Touche Windows seule : tiroir d'applications, comme sur Android/ChromeOS -->
+    <keybind key="Super_L" onRelease="yes">
+      <action name="Execute" command="pkill -USR1 -x lumina-shell" />
+    </keybind>
+    <!-- Windows + A : reglages rapides -->
+    <keybind key="W-a">
+      <action name="Execute" command="pkill -USR2 -x lumina-shell" />
+    </keybind>
+    <keybind key="W-Up"><action name="ToggleMaximize" /></keybind>
+    <keybind key="W-Left"><action name="SnapToEdge" direction="left" /></keybind>
+    <keybind key="W-Right"><action name="SnapToEdge" direction="right" /></keybind>
+  </keyboard>
+</labwc_config>

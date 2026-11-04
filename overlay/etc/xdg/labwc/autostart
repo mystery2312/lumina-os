@@ -1,0 +1,13 @@
+# Lance par labwc a l'ouverture de session.
+. /etc/lumina/session.conf 2>/dev/null
+
+# Acceleration 3D reelle ou emulee ? Le resultat sert a lumina-browser
+# (--disable-gpu) et, au prochain demarrage, au compositeur (pixman).
+GPU=$(lumina-shell --probe-gl 2>/dev/null | cut -f1)
+echo "${GPU:-software}" > "$XDG_RUNTIME_DIR/lumina-gpu"
+if [ "${GPU:-software}" = software ] && [ "${LUMINA_RENDERER:-auto}" = auto ]; then
+  echo pixman > /var/lib/lumina/renderer 2>/dev/null
+fi
+
+lumina-shell &
+[ "${LUMINA_OPEN_BROWSER:-yes}" = yes ] && lumina-browser &

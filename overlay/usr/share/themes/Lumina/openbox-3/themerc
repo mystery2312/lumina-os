@@ -1,0 +1,22 @@
+# Palette Material 3 de LuminaOS (claire)
+border.width: 0
+padding.height: 6
+window.active.title.bg.color: #e3eae5
+window.inactive.title.bg.color: #e9efeb
+window.active.label.text.color: #171d1a
+window.inactive.label.text.color: #404945
+window.active.button.unpressed.image.color: #404945
+window.inactive.button.unpressed.image.color: #707975
+window.active.border.color: #e3eae5
+window.inactive.border.color: #e9efeb
+menu.items.bg.color: #eff5f1
+menu.items.text.color: #171d1a
+menu.items.active.bg.color: #a1f2d7
+menu.items.active.text.color: #002019
+osd.bg.color: #e9efeb
+osd.border.color: #e9efeb
+osd.label.text.color: #171d1a
+window.active.shadow.size: 28
+window.inactive.shadow.size: 18
+window.active.shadow.color: #0028201f
+window.inactive.shadow.color: #0028200f

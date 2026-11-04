@@ -1,0 +1,9 @@
+# Firmwares non libres, indispensables au Wi-Fi sur du materiel de recup.
+# Composant non-free-firmware de Debian. Mis a FIRMWARE=0 dans image.conf
+# pour une image 100% libre (et sans Wi-Fi sur la plupart des portables).
+# Jeu volontairement cible : on evite firmware-misc-nonfree complet et les
+# firmwares GPU AMD/NVIDIA, inutiles sur les machines visees et tres gros.
+firmware-iwlwifi
+firmware-realtek
+firmware-atheros
+firmware-brcm80211

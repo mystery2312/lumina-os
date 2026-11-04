@@ -1,0 +1,4 @@
+#!/bin/sh
+# Ouvre une appli web dans sa propre fenetre, sans barre d'adresse
+# (equivalent des PWA de ChromeOS). Partage le processus Chromium.
+exec lumina-browser --app="$1"

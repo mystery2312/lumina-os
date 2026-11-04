@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=Drive
+Exec=lumina-webapp https://drive.google.com
+X-Lumina-Glyph=drive
+X-Lumina-Tone=ter
+X-Lumina-Kind=Web

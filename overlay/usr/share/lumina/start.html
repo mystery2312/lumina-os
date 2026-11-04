@@ -1,0 +1,63 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Nouvel onglet</title>
+<style>
+  /* Meme palette tonale que lumina-shell. Polices locales uniquement :
+     la page doit s'afficher sans reseau. */
+  :root{
+    --surface:#f5fbf7; --c:#e9efeb; --c-high:#e3eae5; --on:#171d1a; --on-var:#404945;
+    --pri:#006b57; --pri-c:#a1f2d7; --on-pri-c:#002019; --sec-c:#cde8de; --on-sec-c:#06201a;
+    --ter-c:#d1e4ff; --on-ter-c:#041d33;
+    --font:"Roboto","DejaVu Sans",system-ui,sans-serif;
+  }
+  @media (prefers-color-scheme:dark){
+    :root{
+      --surface:#0f1512; --c:#1b211e; --c-high:#252b28; --on:#dee4e0; --on-var:#bfc9c3;
+      --pri:#85d6bc; --pri-c:#005141; --on-pri-c:#a1f2d7; --sec-c:#334b43; --on-sec-c:#cde8de;
+      --ter-c:#324960; --on-ter-c:#d1e4ff;
+    }
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; min-height:100vh; padding:12vh 20px 40px;
+    background:var(--surface); color:var(--on); font:400 14px/1.45 var(--font);
+    display:flex; flex-direction:column; align-items:center; gap:28px;
+  }
+  h1{margin:0; font-size:40px; font-weight:400; letter-spacing:-.01em; text-wrap:balance}
+  form{width:min(560px,100%); display:flex; align-items:center; gap:12px;
+       height:50px; padding:0 20px; border-radius:25px; background:var(--c-high); color:var(--on-var)}
+  form:focus-within{outline:2px solid var(--pri)}
+  form svg{width:20px; height:20px; flex:none}
+  input{flex:1; min-width:0; border:0; background:none; outline:none; color:var(--on); font:400 15px var(--font)}
+  input::placeholder{color:var(--on-var)}
+  nav{display:grid; grid-template-columns:repeat(4,92px); gap:8px 12px}
+  a{display:flex; flex-direction:column; align-items:center; gap:8px; padding:10px 4px;
+    border-radius:16px; font-size:12px; color:var(--on); text-decoration:none}
+  a:hover,a:focus-visible{background:var(--c); outline:none}
+  .ico{width:46px; height:46px; border-radius:14px; display:grid; place-items:center;
+       background:var(--pri-c); color:var(--on-pri-c)}
+  .ico.t{background:var(--ter-c); color:var(--on-ter-c)}
+  .ico.s{background:var(--sec-c); color:var(--on-sec-c)}
+  .ico svg{width:22px; height:22px}
+  @media (max-width:440px){ nav{grid-template-columns:repeat(4,1fr); width:100%} h1{font-size:30px} }
+</style>
+
+<h1 id="hello">Bonjour</h1>
+
+<form action="https://duckduckgo.com/" method="get" role="search">
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m15.4 15.4 4.1 4.1"/></svg>
+  <input id="q" name="q" type="search" placeholder="Rechercher sur le Web" autocomplete="off" autofocus>
+</form>
+
+<nav aria-label="Raccourcis">
+  <a href="https://mail.google.com"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><rect x="2.5" y="5" width="19" height="14" rx="2.5"/><path d="m3 7 9 6.2L21 7"/></svg></span>Mail</a>
+  <a href="https://docs.google.com"><span class="ico t"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round"><path d="M6 2.5h8l4.5 4.5v14.5H6z"/><path d="M14 2.5V7h4.5M9 12h6M9 15.5h6"/></svg></span>Docs</a>
+  <a href="https://calendar.google.com"><span class="ico s"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round"><rect x="3" y="5" width="18" height="16" rx="2.5"/><path d="M3 10h18M8 2.5v4.5M16 2.5v4.5"/></svg></span>Agenda</a>
+  <a href="https://www.youtube.com"><span class="ico t"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><rect x="2" y="5" width="20" height="14" rx="4"/><path d="M10.3 9.1v5.8L15.4 12z" fill="currentColor" stroke="none"/></svg></span>Vidéos</a>
+</nav>
+
+<script>
+  const h = new Date().getHours();
+  document.getElementById('hello').textContent = h >= 5 && h < 18 ? 'Bonjour' : 'Bonsoir';
+</script>

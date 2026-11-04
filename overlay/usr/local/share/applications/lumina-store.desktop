@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Boutique
+Exec=lumina-android
+X-Lumina-Glyph=store
+X-Lumina-Tone=pri
+X-Lumina-Kind=Android
+TryExec=waydroid
