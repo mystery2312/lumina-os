@@ -1,43 +1,8 @@
 #!/bin/sh
-# Lance Chromium. Sans argument : nouvelle fenetre sur la page d'accueil.
-# Avec arguments (URL, --app=...) : transmis tels quels. Si Chromium tourne
-# deja avec ce profil, la demande est confiee au processus existant : une
-# appli web de plus ne coute qu'un onglet, pas un second navigateur.
-#
-# Drapeaux pensees pour 2 Go de RAM :
-#   --enable-low-end-device-mode  bascule Chromium dans son mode "Android Go"
-#   --process-per-site            un process par site, pas par onglet : c'est
-#                                 LE levier memoire, il divise souvent par 3
-#                                 le nombre de renderers
-#   --renderer-process-limit      plafond dur, evite l'OOM-kill
-#   --password-store=basic        pas de dependance a un trousseau/keyring
-#   --hide-crash-restore-bubble   un OS s'eteint sans fermer le navigateur :
-#                                 la bulle "restaurer" n'a pas de sens ici
-# Les reglages propres a la machine vivent dans /etc/lumina/browser.conf.
-set -eu
-PROFILE_DIR=/var/lib/lumina/browser
-LUMINA_BROWSER_EXTRA_FLAGS=""
-[ -r /etc/lumina/browser.conf ] && . /etc/lumina/browser.conf
+# Ouvre le navigateur. Sans argument : la page d'accueil. Avec arguments
+# (URL, --app=...) : transmis tels quels. Si Chromium tourne deja, la
+# demande est confiee au processus existant : une appli web de plus ne
+# coute qu'un onglet, pas un second navigateur.
+# Les reglages sont dans /etc/chromium.d/lumina (appliques a tout lancement).
 [ $# -eq 0 ] && set -- "file:///usr/share/lumina/start.html"
-
-# Sans acceleration 3D reelle (sonde de l'ouverture de session), le GPU
-# process de Chromium bloque ou emule la 3D sur le processeur : on passe
-# directement en rendu logiciel, bien plus leger.
-GPU_STATE="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/lumina-gpu"
-[ "$(cat "$GPU_STATE" 2>/dev/null)" = software ] && \
-  LUMINA_BROWSER_EXTRA_FLAGS="--disable-gpu $LUMINA_BROWSER_EXTRA_FLAGS"
-
-# shellcheck disable=SC2086  # les drapeaux additionnels sont voulus separes
-exec /usr/bin/chromium \
-  --ozone-platform=wayland \
-  --user-data-dir="$PROFILE_DIR" \
-  --enable-low-end-device-mode \
-  --process-per-site \
-  --renderer-process-limit=3 \
-  --disk-cache-size=52428800 \
-  --password-store=basic \
-  --hide-crash-restore-bubble \
-  --no-first-run \
-  --no-default-browser-check \
-  $LUMINA_BROWSER_EXTRA_FLAGS \
-  "$@"
+exec /usr/bin/chromium "$@"

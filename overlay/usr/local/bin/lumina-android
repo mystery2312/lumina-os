@@ -1,22 +1,65 @@
 #!/bin/sh
 # Apps Android a la demande, via Waydroid (conteneur LXC + LineageOS).
-# Volontairement NON installe dans l'image : Waydroid coute ~500 Mo de RAM
-# une fois demarre, ce qui est inacceptable en permanence sur 2 Go. On le
-# telecharge et on le demarre seulement quand l'utilisateur ouvre une app.
+#
+# Waydroid n'est PAS dans l'image : une fois Android demarre, il coute
+# ~500 Mo de RAM, inacceptable en permanence sur 2 Go. On l'installe une
+# fois, puis Android ne demarre qu'a l'ouverture d'une appli.
+#
+#   sudo lumina-android --install   installe Waydroid (~1 Go a telecharger,
+#                                   machines de 4 Go de RAM ou plus)
+#   lumina-android                  ouvre l'interface Android complete
+#   lumina-android <paquet>         ouvre une appli (ex. org.fdroid.fdroid)
+#   lumina-android --stop           arrete Android, rend sa memoire
+#
+# Waydroid depose un fichier .desktop par appli installee : elles
+# apparaissent d'elles-memes dans le tiroir de LuminaOS, avec leur icone.
 set -eu
 
-if ! command -v waydroid >/dev/null 2>&1; then
-  echo "Waydroid n'est pas installe. Installation (~500 Mo) :"
-  echo "  sudo lumina-android --install"
-  [ "${1:-}" = "--install" ] || exit 1
+# Seuil : 4 Go de RAM. Android (~500 Mo actif) + Chromium ne tiennent pas
+# confortablement en dessous. Une machine "4 Go" n'en montre que ~3,6 a
+# 3,8 au systeme (memoire reservee au GPU integre, au firmware) : on
+# compte donc 3,5 Go visibles.
+MIN_RAM_MB=3500
+ram_mb() { awk '/^MemTotal:/ { print int($2 / 1024) }' /proc/meminfo; }
+
+if [ "${1:-}" = "--install" ]; then
+  [ "$(id -u)" = 0 ] || { echo "A lancer avec sudo." >&2; exit 1; }
+  if [ "$(ram_mb)" -lt "$MIN_RAM_MB" ]; then
+    echo "Apps Android indisponibles : cette machine a $(ram_mb) Mo de RAM," >&2
+    echo "il en faut au moins 4 Go. Android y ralentirait tout le systeme." >&2
+    exit 1
+  fi
   apt-get update
   apt-get install -y waydroid
-  waydroid init -s GAPPS   # -s VANILLA pour une image sans services Google
+  # GAPPS : Play Store inclus. VANILLA : Android sans services Google.
+  waydroid init -s "${LUMINA_ANDROID_IMAGE:-GAPPS}"
+  # Le service du conteneur reste en veille (quelques Mo) ; c'est la
+  # session utilisateur qui demarre reellement Android.
+  systemctl enable --now waydroid-container.service
+  echo "Waydroid installe. Les applis Android apparaitront dans le tiroir."
   exit 0
 fi
 
-# Demarrage paresseux du conteneur, puis de l'app demandee.
-systemctl is-active --quiet waydroid-container || systemctl start waydroid-container
-waydroid session status >/dev/null 2>&1 || (waydroid session start &) && sleep 3
-[ -n "${1:-}" ] && exec waydroid app launch "$1"
+command -v waydroid >/dev/null 2>&1 || {
+  echo "Waydroid n'est pas installe : sudo lumina-android --install" >&2
+  exit 1
+}
+
+if [ "${1:-}" = "--stop" ]; then
+  waydroid session stop
+  exit 0
+fi
+
+# Demarrage paresseux : on lance la session si besoin et on attend
+# qu'Android soit pret (jusqu'a 90 s sur une machine lente).
+if ! waydroid status 2>/dev/null | grep -q "Session:.*RUNNING"; then
+  (waydroid session start >/dev/null 2>&1 &)
+  i=0
+  until waydroid status 2>/dev/null | grep -q "Session:.*RUNNING"; do
+    i=$((i + 1)); [ "$i" -gt 90 ] && { echo "Android n'a pas demarre." >&2; exit 1; }
+    sleep 1
+  done
+fi
+
+if [ -n "${1:-}" ]; then exec waydroid app launch "$1"; fi
 exec waydroid show-full-ui

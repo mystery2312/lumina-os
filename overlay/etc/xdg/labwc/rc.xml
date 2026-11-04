@@ -14,6 +14,9 @@
     <name>Lumina</name>
     <cornerRadius>12</cornerRadius>
     <dropShadows>yes</dropShadows>
+    <!-- Pas d'icone de fenetre : labwc afficherait son logo par defaut pour
+         toutes les applis web. Boutons a droite, comme sur Aluminium. -->
+    <titlebar><layout>:iconify,max,close</layout></titlebar>
     <font place="ActiveWindow"><name>Roboto</name><size>10</size><weight>bold</weight></font>
     <font place="InactiveWindow"><name>Roboto</name><size>10</size></font>
     <font place="OnScreenDisplay"><name>Roboto</name><size>10</size></font>

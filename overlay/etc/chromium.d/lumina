@@ -1,0 +1,30 @@
+# Lu par /usr/bin/chromium (lanceur Debian) a CHAQUE lancement : le
+# navigateur, les applis web (--app=) et les PWA installees, dont les
+# raccourcis appellent /usr/bin/chromium directement. Tous partagent ainsi
+# le meme profil et les memes reglages basse memoire.
+#
+#   --user-data-dir               profil sur la partition d'etat
+#   --enable-low-end-device-mode  le mode "Android Go" de Chromium
+#   --process-per-site            un process par site, pas par onglet : c'est
+#                                 LE levier memoire, il divise souvent par 3
+#                                 le nombre de renderers
+#   --renderer-process-limit      plafond dur, evite l'OOM-kill
+#   --password-store=basic        pas de dependance a un trousseau/keyring
+#   --hide-crash-restore-bubble   un OS s'eteint sans fermer le navigateur :
+#                                 la bulle "restaurer" n'a pas de sens ici
+export CHROMIUM_FLAGS="$CHROMIUM_FLAGS --ozone-platform=wayland \
+ --user-data-dir=/var/lib/lumina/browser --enable-low-end-device-mode \
+ --process-per-site --renderer-process-limit=3 --disk-cache-size=52428800 \
+ --password-store=basic --hide-crash-restore-bubble --no-first-run \
+ --no-default-browser-check"
+
+# Sans acceleration 3D reelle (sonde de l'ouverture de session), le GPU
+# process bloque ou emule la 3D sur le processeur : rendu logiciel direct.
+if [ "$(cat "${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/lumina-gpu" 2>/dev/null)" = software ]; then
+  export CHROMIUM_FLAGS="$CHROMIUM_FLAGS --disable-gpu"
+fi
+
+# Drapeaux propres a la machine (voir /etc/lumina/browser.conf)
+LUMINA_BROWSER_EXTRA_FLAGS=""
+[ -r /etc/lumina/browser.conf ] && . /etc/lumina/browser.conf
+export CHROMIUM_FLAGS="$CHROMIUM_FLAGS $LUMINA_BROWSER_EXTRA_FLAGS"

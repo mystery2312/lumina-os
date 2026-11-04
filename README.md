@@ -15,7 +15,7 @@ demande** et jamais résidente.
 |---|---|---|
 | Base | Kernel + framework Android | Debian 13 minimal |
 | Bureau | SystemUI Android | `labwc` (fenêtres) + `lumina-shell` (C/GTK3, ~35 Mo) |
-| Apps Android | Résident (ART, SystemServer) | Waydroid, démarré au 1er lancement |
+| Apps Android | Résident (ART, SystemServer) | Waydroid à la demande, dès 4 Go de RAM |
 | IA | Gemini Nano on-device | Cloud par défaut, modèle local optionnel |
 | RAM, bureau + Chromium ouvert | ~3,5 Go | **~490 Mo mesurés** (VM 2 Go) |
 
@@ -38,6 +38,7 @@ build/screenshot.sh out/ecran.png      # capture de l'écran de la VM
 build/vm-run.sh "free -m"              # commande dans la VM (console série)
 build/vm-push.py fichier /chemin/vm    # copie un fichier dans la VM
 build/vm-restart-shell.sh              # relance lumina-shell sans redémarrer
+build/vm-key.sh meta_l-up f11          # touches clavier (agrandir, plein écran…)
 ```
 
 `RAM=1024 build/30-qemu.sh` pour éprouver le pire cas.
@@ -59,6 +60,22 @@ RAM et zram) ; un appareil absent est masqué, jamais simulé.
 - Applis épinglées : `/etc/lumina/dock.conf` · thème : `~/.config/lumina/theme`
 - Applis web (Mail, Docs…) : `/usr/local/share/applications/lumina-*.desktop`,
   ouvertes en fenêtre dédiée par un Chromium partagé
+
+### Applis installées
+
+Le tiroir se met à jour **en direct**, sans redémarrer la session, et
+affiche l'**icône propre** de chaque appli installée :
+
+- **PWA** : « Installer l'application » dans Chromium. Chromium dépose un
+  `.desktop` et son icône dans `~/.local/share` ; type affiché « Web ».
+  Les réglages de Chromium (`/etc/chromium.d/lumina`) s'appliquent aussi
+  aux PWA lancées alors que le navigateur est fermé.
+- **Android** (machines de **4 Go de RAM ou plus**) :
+  `sudo lumina-android --install`. Chaque appli installée dans Android
+  apparaît dans le tiroir (type « Android ») ; Android ne démarre qu'à
+  l'ouverture de la première appli. Sous 4 Go, l'installation est refusée :
+  Android (~500 Mo actif) ralentirait tout le système.
+- **Paquets Debian** avec interface graphique : type « Linux ».
 
 **Sans accélération 3D** (vieux GPU non pris en charge, VM) :
 `lumina-shell --probe-gl` le détecte à l'ouverture de session ; Chromium
@@ -88,7 +105,8 @@ de machine cassée à distance.
       qui suit le thème sombre, vrai gestionnaire de fichiers, Bluetooth,
       boot BIOS pour les netbooks pré-UEFI
 - [ ] **M3** Racine en lecture seule, dm-verity, updater A/B
-- [ ] **M4** Apps Android à la demande (`lumina-android`)
+- [ ] **M4** Apps Android : lanceur et tiroir prêts, à valider sur une vraie
+      machine de 4 Go (Waydroid ne tourne pas dans la VM de test)
 - [ ] **M5** Couche IA : API distante par défaut, `llama.cpp` + modèle 0,6 B
       en option hors ligne
 

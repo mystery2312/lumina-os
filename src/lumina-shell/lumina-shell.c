@@ -144,6 +144,15 @@ static void icon_render(Icon *ic) {
   g_free(svg);
 }
 
+/* Le tiroir est reconstruit quand des applis sont installees : une icone
+   detruite doit quitter la liste, sinon le changement de theme la
+   re-rendrait apres liberation. */
+static void icon_destroyed(GtkWidget *w, gpointer d) {
+  Icon *ic = d;
+  g_ptr_array_remove(icons, ic);
+  g_free(ic->glyph); g_free(ic);
+}
+
 static Icon *icon_new(const char *glyph, int role, int px) {
   Icon *ic = g_new0(Icon, 1);
   ic->img = gtk_image_new();
@@ -151,6 +160,7 @@ static Icon *icon_new(const char *glyph, int role, int px) {
   ic->role = role; ic->px = px;
   gtk_widget_set_size_request(ic->img, px, px);
   g_ptr_array_add(icons, ic);
+  g_signal_connect(ic->img, "destroy", G_CALLBACK(icon_destroyed), ic);
   icon_render(ic);
   return ic;
 }
@@ -308,7 +318,7 @@ static const char *MON_L[] = {"", "janvier", "février", "mars", "avril", "mai",
 static GtkWidget *wall_area, *drawer, *qs, *scrim;
 static GtkWidget *clock_l, *date_l, *tray_btn, *batt_l, *launch_btn;
 static Icon *tray_net_ic, *tray_batt_ic;
-static GtkWidget *search_entry, *flow, *flow_empty;
+static GtkWidget *search_entry, *flow, *flow_empty, *flow_scroll;
 static GtkWidget *qs_time, *qs_date;
 static GtkWidget *wifi_tile, *wifi_sub, *nets_rev, *nets_box, *wifi_power_btn;
 static Icon *wifi_ic;
@@ -440,8 +450,36 @@ static int tone_role(const char *tone) {
   return g_strcmp0(tone, "ter") == 0 ? R_ON_TER_C : g_strcmp0(tone, "sec") == 0 ? R_ON_SEC_C : R_ON_PRI_C;
 }
 
-/* Icone "themee" Android : glyphe sur conteneur tonal, ou initiale. */
+/* L'icone de l'appli existe-t-elle vraiment ? (sinon GTK afficherait
+   son pictogramme "image manquante") */
+static gboolean icon_available(GIcon *gi, int px) {
+  if (!gi) return FALSE;
+  if (G_IS_FILE_ICON(gi)) {
+    GFile *f = g_file_icon_get_file(G_FILE_ICON(gi));
+    return g_file_query_exists(f, NULL);
+  }
+  GtkIconInfo *info = gtk_icon_theme_lookup_by_gicon(gtk_icon_theme_get_default(), gi, px, 0);
+  if (!info) return FALSE;
+  g_object_unref(info);
+  return TRUE;
+}
+
+/* Applis LuminaOS : glyphe "theme" sur conteneur tonal (facon Android).
+   Applis installees (PWA, Android, Linux) : leur propre icone.
+   A defaut d'icone : l'initiale sur conteneur tonal. */
 static GtkWidget *app_icon(GDesktopAppInfo *a, gboolean big) {
+  int px = big ? 46 : 36;
+  char *glyph = g_desktop_app_info_get_string(a, "X-Lumina-Glyph");
+  GIcon *gi = g_app_info_get_icon(G_APP_INFO(a));
+  if (!(glyph && glyph_svg(glyph)) && icon_available(gi, px)) {
+    g_free(glyph);
+    GtkWidget *img = gtk_image_new_from_gicon(gi, GTK_ICON_SIZE_DIALOG);
+    gtk_image_set_pixel_size(GTK_IMAGE(img), px);
+    gtk_widget_set_size_request(img, px, px);
+    gtk_widget_set_halign(img, GTK_ALIGN_CENTER);
+    return img;
+  }
+  g_free(glyph);
   const char *tone = app_tone(a);
   GtkWidget *box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
   add_class(box, "ico"); add_class(box, tone);
@@ -465,7 +503,30 @@ static GtkWidget *app_icon(GDesktopAppInfo *a, gboolean big) {
   return box;
 }
 
+/* Type affiche sous le nom. Les PWA de Chromium ont un WMClass "crx_..."
+   et un identifiant "chrome-..." ; les applis Waydroid un identifiant
+   "waydroid.<paquet>.desktop". */
+static char *app_kind(GDesktopAppInfo *a) {
+  char *k = g_desktop_app_info_get_string(a, "X-Lumina-Kind");
+  if (k) return k;
+  const char *id = g_app_info_get_id(G_APP_INFO(a)), *wm = g_desktop_app_info_get_startup_wm_class(a);
+  if (id && g_str_has_prefix(id, "waydroid.")) return g_strdup("Android");
+  if ((wm && g_str_has_prefix(wm, "crx_")) || (id && (g_str_has_prefix(id, "chrome-") || g_str_has_prefix(id, "chromium-"))))
+    return g_strdup("Web");
+  return g_strdup("Linux");
+}
+
 static void launch(GAppInfo *a) {
+  /* Une appli Android ne peut se lancer que si Android tourne :
+     lumina-android le demarre a la demande, puis ouvre l'appli. */
+  const char *id = g_app_info_get_id(a);
+  if (id && g_str_has_prefix(id, "waydroid.") && g_str_has_suffix(id, ".desktop")) {
+    char *pkg = g_strndup(id + 9, strlen(id) - 9 - 8);
+    const char *argv[] = {"lumina-android", pkg, NULL};
+    spawn_async(argv);
+    g_free(pkg);
+    return;
+  }
   GdkAppLaunchContext *ctx = gdk_display_get_app_launch_context(gdk_display_get_default());
   GError *err = NULL;
   if (!g_app_info_launch(a, NULL, G_APP_LAUNCH_CONTEXT(ctx), &err)) {
@@ -541,19 +602,35 @@ static void fill_drawer(void) {
     gtk_label_set_ellipsize(GTK_LABEL(n), PANGO_ELLIPSIZE_END);
     gtk_label_set_max_width_chars(GTK_LABEL(n), 12);
     gtk_container_add(GTK_CONTAINER(v), n);
-    char *kind = g_desktop_app_info_get_string(a, "X-Lumina-Kind");
-    gtk_container_add(GTK_CONTAINER(v), label(kind ? kind : "Linux", "kind", 0.5));
+    char *kind = app_kind(a);
+    gtk_container_add(GTK_CONTAINER(v), label(kind, "kind", 0.5));
     g_free(kind);
     gtk_container_add(GTK_CONTAINER(btn), v);
-    g_signal_connect(btn, "clicked", G_CALLBACK(on_app_clicked), g_object_ref(a));
+    g_signal_connect_data(btn, "clicked", G_CALLBACK(on_app_clicked), g_object_ref(a),
+                          (GClosureNotify)(void (*)(void))g_object_unref, 0);
     gtk_flow_box_insert(GTK_FLOW_BOX(flow), btn, -1);
     GtkWidget *child = gtk_widget_get_parent(btn);
     gtk_widget_set_can_focus(child, FALSE);
     g_object_set_data(G_OBJECT(child), "app", a);
   }
+  /* GTK3 ne deduit pas la hauteur d'un GtkFlowBox dans un defilement :
+     on la calcule (rangees de 5, ~110 px chacune), plafonnee a 4 rangees. */
+  int rows = (apps->len + 4) / 5;
+  if (flow_scroll)
+    gtk_scrolled_window_set_min_content_height(GTK_SCROLLED_WINDOW(flow_scroll), MIN(MAX(rows, 1), 4) * 110);
+  gtk_widget_show_all(flow);
   g_ptr_array_free(apps, TRUE);
-  /* les GAppInfo restent references par les boutons */
-  g_list_free(all);
+  g_list_free_full(all, g_object_unref);   /* les boutons gardent leur reference */
+}
+
+/* PWA installee depuis Chromium, appli Android ajoutee par Waydroid,
+   paquet Debian : tous deposent un fichier .desktop, que GIO surveille. */
+static void on_apps_changed(GAppInfoMonitor *m, gpointer d) {
+  GList *kids = gtk_container_get_children(GTK_CONTAINER(flow));
+  for (GList *l = kids; l; l = l->next) gtk_widget_destroy(l->data);
+  g_list_free(kids);
+  fill_drawer();
+  on_search_changed(NULL, NULL);
 }
 
 /* ------------------------------------------------------------------ */
@@ -788,7 +865,7 @@ static void fill_networks(void) {
       gtk_container_add(GTK_CONTAINER(pass), e);
       g_object_set_data(G_OBJECT(pass), "entry", e);
       g_signal_connect_data(e, "activate", G_CALLBACK(on_pass_activate), g_strdup(n->ssid),
-                            (GClosureNotify)g_free, 0);
+                            (GClosureNotify)(void (*)(void))g_free, 0);
       gtk_widget_set_no_show_all(pass, TRUE);
 
       g_signal_connect(b, "clicked", G_CALLBACK(on_net_clicked), pass);
@@ -967,10 +1044,16 @@ static void refresh_qs(void) {
   set_class(dark_tile, "on", dark);
   gtk_label_set_text(GTK_LABEL(dark_sub), dark ? "Activé" : "Désactivé");
 
+  /* Meme seuil que lumina-android --install : 4 Go (3,5 Go visibles). */
   char *wd = g_find_program_in_path("waydroid");
+  double total, used, zmem, zorig;
+  read_mem(&total, &used, &zmem, &zorig);
+  gboolean enough = total >= 3500.0 * 1048576;
   gtk_widget_set_sensitive(android_tile, wd != NULL);
-  gtk_widget_set_tooltip_text(android_tile, wd ? NULL : "Installation : sudo lumina-android --install");
-  gtk_label_set_text(GTK_LABEL(android_sub), wd ? "Ouvrir" : "Non installé");
+  gtk_widget_set_tooltip_text(android_tile, wd ? NULL : enough
+      ? "Installation : sudo lumina-android --install"
+      : "Android demande au moins 4 Go de RAM : il ralentirait tout le système sur cette machine.");
+  gtk_label_set_text(GTK_LABEL(android_sub), wd ? "Ouvrir" : enough ? "Non installé" : "Requiert 4 Go");
   g_free(wd);
 
   int bp = brightness_pct();
@@ -1164,17 +1247,12 @@ static void build_drawer(void) {
   gtk_flow_box_set_row_spacing(GTK_FLOW_BOX(flow), 4);
   gtk_flow_box_set_column_spacing(GTK_FLOW_BOX(flow), 4);
   gtk_flow_box_set_filter_func(GTK_FLOW_BOX(flow), flow_filter, NULL, NULL);
-  fill_drawer();
 
-  GtkWidget *sc = gtk_scrolled_window_new(NULL, NULL);
+  GtkWidget *sc = flow_scroll = gtk_scrolled_window_new(NULL, NULL);
   gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(sc), GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
-  /* GTK3 ne deduit pas la hauteur d'un GtkFlowBox dans un defilement :
-     on la calcule (rangees de 5, ~110 px chacune), plafonnee a 4 rangees. */
-  GList *kids = gtk_container_get_children(GTK_CONTAINER(flow));
-  int rows = (g_list_length(kids) + 4) / 5;
-  g_list_free(kids);
-  gtk_scrolled_window_set_min_content_height(GTK_SCROLLED_WINDOW(sc), MIN(MAX(rows, 1), 4) * 110);
   gtk_container_add(GTK_CONTAINER(sc), flow);
+  fill_drawer();
+  g_signal_connect(g_app_info_monitor_get(), "changed", G_CALLBACK(on_apps_changed), NULL);
   gtk_container_add(GTK_CONTAINER(v), sc);
 
   flow_empty = label("Aucune appli ne correspond. Entrée lance la recherche sur le Web.", "empty", 0.5);
