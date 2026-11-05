@@ -8,3 +8,12 @@ polkit.addRule(function(action, subject) {
     return polkit.Result.YES;
   }
 });
+
+// Date et heure : fuseau horaire et heure automatique (Reglages).
+polkit.addRule(function(action, subject) {
+  if ((action.id == "org.freedesktop.timedate1.set-timezone" ||
+       action.id == "org.freedesktop.timedate1.set-ntp") &&
+      subject.active && subject.local) {
+    return polkit.Result.YES;
+  }
+});

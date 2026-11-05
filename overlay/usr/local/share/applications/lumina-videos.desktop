@@ -6,5 +6,6 @@ Icon=lumina-videos
 # Icone officielle, telechargee sur l'appareil par lumina-fetch-icons
 X-Lumina-IconUrl=https://www.gstatic.com/images/branding/product/2x/youtube_48dp.png
 X-Lumina-Glyph=vid
+X-Lumina-Color=#ff0000
 X-Lumina-Tone=ter
 X-Lumina-Kind=Web

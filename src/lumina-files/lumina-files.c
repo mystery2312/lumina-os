@@ -23,7 +23,7 @@ static const char *CSS =
   "* { font-family: 'Roboto', 'DejaVu Sans', sans-serif; }\n"
   "button { background-image: none; border: none; box-shadow: none; text-shadow: none; outline: none; }\n"
   /* Fenetre : quatre coins arrondis, ombre douce ; droits si agrandie */
-  "window.lumina-files.csd { border-radius: 16px; background: @surface; }\n"
+  "window.lumina-files.csd { border-radius: 0 0 16px 16px; background: @surface; }\n"
   "window.lumina-files.csd decoration { border-radius: 16px;\n"
   "  box-shadow: 0 6px 22px alpha(black, 0.18), 0 0 0 1px alpha(black, 0.06); }\n"
   "window.lumina-files.maximized, window.lumina-files.tiled,\n"
@@ -43,7 +43,8 @@ static const char *CSS =
   ".search { background: @c_high; border-radius: 20px; padding: 0 6px 0 12px; min-height: 38px; }\n"
   ".search entry { background: transparent; border: none; box-shadow: none; color: @on; caret-color: @pri; min-width: 200px; }\n"
   /* Navigation */
-  ".nav { background: @surface; padding: 4px 12px 12px 12px; }\n"
+  ".nav { background: @surface; padding: 4px 12px 12px 12px; border-radius: 0 0 0 16px; }\n"
+  "window.maximized .nav, window.tiled .nav { border-radius: 0; }\n"
   ".nav list, .nav row { background: transparent; }\n"
   ".nav row { border-radius: 24px; padding: 0; margin: 1px 0; }\n"
   ".nav row:hover { background: alpha(@on, 0.06); }\n"
@@ -55,7 +56,7 @@ static const char *CSS =
   ".eject { background: transparent; border-radius: 16px; min-width: 28px; min-height: 28px; padding: 0; }\n"
   ".eject:hover { background: alpha(@on, 0.10); }\n"
   /* Contenu */
-  ".content { background: @c_low; border-radius: 20px 0 0 0; }\n"
+  ".content { background: @c_low; border-radius: 20px 0 16px 0; }\n"
   "window.maximized .content, window.tiled .content { border-radius: 20px 0 0 0; }\n"
   ".content flowbox { padding: 12px; }\n"
   ".content flowboxchild { background: transparent; border-radius: 16px; padding: 0; outline: none; }\n"

@@ -37,6 +37,15 @@ void icon_set(Icon *ic, const char *glyph, int role);
 void lumina_ui_init(const char *css, void (*on_theme)(void));
 void lumina_ui_set_dark(gboolean on);   /* applique et enregistre */
 
+/* Couleur d'accent (~/.config/lumina/accent) : "#rrggbb", ou "wallpaper"
+   pour la couleur dominante du fond d'ecran. Le vert d'origine est la
+   palette dessinee a la main. */
+#define LUMINA_DEFAULT_ACCENT "#0f7a63"
+char *lumina_ui_accent(void);                    /* a liberer */
+void lumina_ui_set_accent(const char *v);        /* NULL : par defaut */
+char *lumina_ui_wallpaper_path(void);            /* photo choisie, ou NULL */
+gboolean lumina_ui_image_hue(const char *path, double *hue);
+
 void add_class(GtkWidget *w, const char *c);
 void set_class(GtkWidget *w, const char *c, gboolean on);
 GtkWidget *label(const char *text, const char *cls, float xalign);

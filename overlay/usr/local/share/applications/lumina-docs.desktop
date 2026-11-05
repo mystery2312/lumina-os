@@ -6,5 +6,6 @@ Icon=lumina-docs
 # Icone officielle, telechargee sur l'appareil par lumina-fetch-icons
 X-Lumina-IconUrl=https://www.gstatic.com/images/branding/product/2x/docs_2020q4_48dp.png
 X-Lumina-Glyph=docs
+X-Lumina-Color=#4285f4
 X-Lumina-Tone=ter
 X-Lumina-Kind=Web

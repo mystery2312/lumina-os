@@ -496,7 +496,22 @@ static void build(void) {
   gtk_container_add(GTK_CONTAINER(p), bb);
   gtk_stack_add_named(GTK_STACK(stack), p, "end");
 
-  gtk_container_add(GTK_CONTAINER(win), stack);
+  /* Petits ecrans (netbook 1024x600, VM en 800x600) : la fenetre ne
+     depasse pas l'espace libre, le contenu defile au besoin. */
+  GtkWidget *outer = gtk_scrolled_window_new(NULL, NULL);
+  gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(outer), GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
+  gtk_scrolled_window_set_propagate_natural_height(GTK_SCROLLED_WINDOW(outer), TRUE);
+  gtk_scrolled_window_set_propagate_natural_width(GTK_SCROLLED_WINDOW(outer), TRUE);
+  GdkMonitor *mon = gdk_display_get_monitor(gdk_display_get_default(), 0);
+  if (mon) {
+    GdkRectangle wa; gdk_monitor_get_workarea(mon, &wa);
+    gtk_scrolled_window_set_max_content_height(GTK_SCROLLED_WINDOW(outer), MAX(300, wa.height - 140));
+    gtk_scrolled_window_set_max_content_width(GTK_SCROLLED_WINDOW(outer), MAX(400, wa.width - 40));
+    if (wa.height - 140 < 520 || wa.width - 40 < 640)
+      gtk_window_set_default_size(GTK_WINDOW(win), MIN(640, wa.width - 40), MIN(520, wa.height - 140));
+  }
+  gtk_container_add(GTK_CONTAINER(outer), stack);
+  gtk_container_add(GTK_CONTAINER(win), outer);
   gtk_widget_show_all(win);
   go("welcome");
 }

@@ -1,0 +1,30 @@
+#!/bin/sh
+# Suit les changements d'ecran signales par le noyau (evenement "change"
+# du sous-systeme drm) : ecran branche, ou fenetre de machine virtuelle
+# redimensionnee, qui annonce alors une nouvelle definition preferee.
+# labwc garde sinon la definition choisie au demarrage (tout parait zoome
+# dans une VM demarree dans une petite fenetre).
+#   -> chaque sortie active repasse a sa definition preferee.
+# Sorties actives dont le mode prefere n'est pas le mode en cours (sans
+# changement a faire, pas de reglage : l'ecran ne clignote pas).
+follow() {
+  wlr-randr 2>/dev/null | awk '
+    /^[^ ]/ { if (o != "" && en && !ok) print o; o = $1; en = 0; ok = 0 }
+    /^  Enabled: yes/ { en = 1 }
+    /preferred/ && /current/ { ok = 1 }
+    END { if (o != "" && en && !ok) print o }' |
+    while read -r o; do
+      # Ecran regle a la main (Reglages > Ecrans) : on garde ses reglages
+      lumina-displays has "$o" && continue
+      wlr-randr --output "$o" --preferred 2>/dev/null
+    done
+}
+follow
+[ "${1:-}" = --once ] && exit 0
+udevadm monitor --udev --subsystem-match=drm 2>/dev/null | while read -r line; do
+  case "$line" in
+    *" change "*|*" add "*)
+      # Les evenements arrivent en rafale : on laisse le noyau finir.
+      sleep 1; follow; lumina-displays apply ;;
+  esac
+done

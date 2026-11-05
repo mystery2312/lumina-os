@@ -12,15 +12,42 @@
   </placement>
   <theme>
     <name>Lumina</name>
-    <cornerRadius>12</cornerRadius>
+    <cornerRadius>16</cornerRadius>
     <dropShadows>yes</dropShadows>
     <!-- Pas d'icone de fenetre : labwc afficherait son logo par defaut pour
          toutes les applis web. Boutons a droite, comme sur Aluminium. -->
     <titlebar><layout>:iconify,max,close</layout></titlebar>
-    <font place="ActiveWindow"><name>Roboto</name><size>10</size><weight>bold</weight></font>
-    <font place="InactiveWindow"><name>Roboto</name><size>10</size></font>
+    <font place="ActiveWindow"><name>Roboto</name><size>12</size></font>
+    <font place="InactiveWindow"><name>Roboto</name><size>12</size></font>
     <font place="OnScreenDisplay"><name>Roboto</name><size>10</size></font>
   </theme>
+  <!-- Bureaux virtuels facon ChromeOS (Windows + 1..4, Windows + [ / ]) -->
+  <desktops>
+    <popupTime>700</popupTime>
+    <names>
+      <name>Bureau 1</name>
+      <name>Bureau 2</name>
+      <name>Bureau 3</name>
+      <name>Bureau 4</name>
+    </names>
+  </desktops>
+  <!-- Loupe (accessibilite) : Windows + Ctrl + M, puis Windows + Ctrl + +/- -->
+  <magnifier>
+    <width>720</width>
+    <height>420</height>
+    <initScale>2.0</initScale>
+    <increment>0.5</increment>
+    <useFilter>true</useFilter>
+  </magnifier>
+  <!-- Clic sur le bureau : pas de menu labwc (Reconfigurer/Quitter) -->
+  <mouse>
+    <default />
+    <context name="Root">
+      <mousebind button="Left" action="Press" />
+      <mousebind button="Right" action="Press" />
+      <mousebind button="Middle" action="Press" />
+    </context>
+  </mouse>
   <windowSwitcher show="yes" preview="no" outlines="no">
     <fields><field content="title" width="100%" /></fields>
   </windowSwitcher>
@@ -44,5 +71,39 @@
     <keybind key="W-Up"><action name="ToggleMaximize" /></keybind>
     <keybind key="W-Left"><action name="SnapToEdge" direction="left" /></keybind>
     <keybind key="W-Right"><action name="SnapToEdge" direction="right" /></keybind>
+    <!-- Raccourcis de ChromeOS : Alt + [ et ] ancrent a gauche / a droite
+         (ecran partage), Alt + = agrandit, Alt + - reduit -->
+    <keybind key="A-bracketleft"><action name="SnapToEdge" direction="left" /></keybind>
+    <keybind key="A-bracketright"><action name="SnapToEdge" direction="right" /></keybind>
+    <keybind key="A-equal"><action name="ToggleMaximize" /></keybind>
+    <keybind key="A-minus"><action name="Iconify" /></keybind>
+    <keybind key="W-Down"><action name="Iconify" /></keybind>
+    <!-- Bureaux : Windows + [ / ] change de bureau, + Maj y envoie la fenetre -->
+    <keybind key="W-bracketleft"><action name="GoToDesktop" to="left" wrap="no" /></keybind>
+    <keybind key="W-bracketright"><action name="GoToDesktop" to="right" wrap="no" /></keybind>
+    <keybind key="W-S-bracketleft"><action name="SendToDesktop" to="left" follow="yes" wrap="no" /></keybind>
+    <keybind key="W-S-bracketright"><action name="SendToDesktop" to="right" follow="yes" wrap="no" /></keybind>
+    <keybind key="W-1"><action name="GoToDesktop" to="1" /></keybind>
+    <keybind key="W-2"><action name="GoToDesktop" to="2" /></keybind>
+    <keybind key="W-3"><action name="GoToDesktop" to="3" /></keybind>
+    <keybind key="W-4"><action name="GoToDesktop" to="4" /></keybind>
+    <keybind key="W-S-1"><action name="SendToDesktop" to="1" follow="no" /></keybind>
+    <keybind key="W-S-2"><action name="SendToDesktop" to="2" follow="no" /></keybind>
+    <keybind key="W-S-3"><action name="SendToDesktop" to="3" follow="no" /></keybind>
+    <keybind key="W-S-4"><action name="SendToDesktop" to="4" follow="no" /></keybind>
+    <!-- Vue d'ensemble des fenetres et des bureaux -->
+    <keybind key="W-Tab"><action name="Execute" command="lumina-shell --action overview" /></keybind>
+    <keybind key="F5" ><action name="Execute" command="lumina-shell --action overview" /></keybind>
+    <!-- Historique du presse-papiers, emojis -->
+    <keybind key="W-v"><action name="Execute" command="lumina-shell --action clipboard" /></keybind>
+    <keybind key="W-period"><action name="Execute" command="lumina-shell --action emoji" /></keybind>
+    <!-- Ctrl + Impr : enregistrer l'ecran (demarrer / arreter) -->
+    <keybind key="C-Print"><action name="Execute" command="lumina-record" /></keybind>
+    <!-- Loupe -->
+    <keybind key="W-C-m"><action name="ToggleMagnify" /></keybind>
+    <keybind key="W-C-equal"><action name="ZoomIn" /></keybind>
+    <keybind key="W-C-minus"><action name="ZoomOut" /></keybind>
+    <!-- Aide : liste des raccourcis -->
+    <keybind key="C-A-slash"><action name="Execute" command="lumina-settings raccourcis" /></keybind>
   </keyboard>
 </labwc_config>

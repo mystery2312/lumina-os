@@ -253,6 +253,13 @@ de machine cassée à distance.
       captures d'écran
 - [x] **M2e** Secure Boot, démarrage BIOS des PC pré-UEFI
 - [ ] **M2f** Coins arrondis en bas des fenêtres (limite de labwc)
+- [x] **M4** Parité ChromeOS : vue d'ensemble, bureaux virtuels, écran
+      partagé, étagère (épingler, réorganiser, masquer, position), fond
+      d'écran et couleurs, presse-papiers, emojis, enregistrement d'écran,
+      Ne pas déranger, éclairage nocturne, notifications, calculatrice,
+      Réglages (écrans, souris, imprimantes, date, énergie, accessibilité,
+      raccourcis), Powerwash, canal bêta, sauvegarde de Linux
+- [ ] **M4b** Mode invité et comptes multiples (écran de connexion)
 - [x] **M3** Mises à jour A/B depuis GitHub, retour automatique, testé
 - [x] **M3a** Mises à jour signées (minisign)
 - [ ] **M3b** Racine en lecture seule et vérifiée (dm-verity)

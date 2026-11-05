@@ -5,6 +5,7 @@ Exec=lumina-browser %U
 MimeType=text/html;x-scheme-handler/http;x-scheme-handler/https;application/pdf;text/plain;image/png;image/jpeg;image/gif;image/webp;image/svg+xml;video/mp4;video/webm;audio/mpeg;audio/ogg;audio/flac;
 Icon=chromium
 X-Lumina-Glyph=web
+X-Lumina-Color=#1a73e8
 X-Lumina-Tone=pri
 X-Lumina-Kind=Web
 StartupWMClass=chromium

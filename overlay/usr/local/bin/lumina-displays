@@ -1,0 +1,28 @@
+#!/bin/sh
+# Rejoue les reglages d'ecrans choisis dans Reglages > Ecrans
+# (~/.config/lumina/displays.conf : "sortie<TAB>arguments wlr-randr", et
+# "mirror<TAB>source<TAB>cible" pour la recopie).
+#   lumina-displays apply      a l'ouverture de session et apres un changement
+#   lumina-displays has SORTIE code 0 si cette sortie a des reglages a elle
+CONF="$HOME/.config/lumina/displays.conf"
+case "${1:-}" in
+  has)
+    [ -r "$CONF" ] && grep -q "^$2	" "$CONF" ;;
+  apply)
+    pkill -x wl-mirror 2>/dev/null
+    [ -r "$CONF" ] || exit 0
+    TAB=$(printf '\t')
+    while IFS="$TAB" read -r out a b; do
+      case "$out" in
+        ''|'#'*) ;;
+        mirror)
+          # La cible affiche en plein ecran une copie de la source
+          setsid wl-mirror --fullscreen-output "$b" "$a" >/dev/null 2>&1 & ;;
+        *)
+          # shellcheck disable=SC2086
+          wlr-randr --output "$out" $a 2>/dev/null ;;
+      esac
+    done < "$CONF"
+    ;;
+  *) echo "usage : lumina-displays apply|has SORTIE" >&2; exit 1 ;;
+esac

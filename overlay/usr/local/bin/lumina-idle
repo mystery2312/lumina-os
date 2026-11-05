@@ -5,8 +5,13 @@
 [ -r "$HOME/.config/lumina/session.conf" ] && . "$HOME/.config/lumina/session.conf"
 LOCK=${LUMINA_LOCK_DELAY:-300}
 OFF=${LUMINA_SCREEN_OFF_DELAY:-600}
+# Mise en veille : 30 min sur un portable (batterie), jamais par defaut
+# sur un PC de bureau. Reglages > Energie.
+if ls /sys/class/power_supply/BAT* >/dev/null 2>&1; then DEF=1800; else DEF=31536000; fi
+SLEEP=${LUMINA_SUSPEND_DELAY:-$DEF}
 pkill -x swayidle 2>/dev/null
 exec swayidle -w \
   timeout "$LOCK" 'lumina-lock' \
   timeout "$OFF" 'wlopm --off "*"' resume 'wlopm --on "*"' \
+  timeout "$SLEEP" 'systemctl suspend' \
   before-sleep 'lumina-lock'

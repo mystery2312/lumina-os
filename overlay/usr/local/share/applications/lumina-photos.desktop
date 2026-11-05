@@ -6,5 +6,6 @@ Icon=lumina-photos
 # Icone officielle, telechargee sur l'appareil par lumina-fetch-icons
 X-Lumina-IconUrl=https://www.gstatic.com/images/branding/product/2x/photos_48dp.png
 X-Lumina-Glyph=photo
+X-Lumina-Color=#e37400
 X-Lumina-Tone=ter
 X-Lumina-Kind=Web

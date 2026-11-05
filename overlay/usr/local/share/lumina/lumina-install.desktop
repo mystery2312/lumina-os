@@ -6,5 +6,6 @@ Exec=lumina-install
 Icon=luminaos
 StartupWMClass=lumina-install
 X-Lumina-Glyph=download
+X-Lumina-Color=#00897b
 X-Lumina-Tone=pri
 X-Lumina-Kind=Système

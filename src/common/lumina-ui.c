@@ -7,6 +7,8 @@
 #include "lumina-ui.h"
 #include <stdlib.h>
 #include <string.h>
+#include <math.h>
+#include <glib/gstdio.h>
 
 /* ------------------------------------------------------------------ */
 /* Palette tonale Material 3, graine #0F7A63                           */
@@ -21,9 +23,155 @@ static const Palette DARK = {
   "#85d6bc", "#00382c", "#005141", "#a1f2d7", "#334b43", "#cde8de",
   "#b1c8e8", "#324960", "#d1e4ff", "#0e4a3c", "#24364c", "#121a17", "#1d2320" };
 
+static Palette GEN_LIGHT, GEN_DARK;
+static gboolean use_gen;
 const Palette *P = &LIGHT;
 gboolean dark = FALSE;
 
+
+
+/* ------------------------------------------------------------------ */
+/* Couleur d'accent choisie (Reglages > Affichage), facon Material You */
+/* ------------------------------------------------------------------ */
+/* Palette tonale recalculee depuis une couleur "graine" : la teinte de la
+   graine, a des niveaux de luminance fixes (les "tons" Material, soit la
+   L* de CIELAB). Ce n'est pas l'espace HCT exact de Google, mais LCh(ab)
+   en est proche et suffit a des palettes harmonieuses et lisibles. */
+static double lin(double c) { return c <= 0.04045 ? c / 12.92 : pow((c + 0.055) / 1.055, 2.4); }
+static double gam(double c) { return c <= 0.0031308 ? 12.92 * c : 1.055 * pow(c, 1 / 2.4) - 0.055; }
+static double lab_f(double t) { return t > 216.0 / 24389 ? cbrt(t) : (24389.0 / 27 * t + 16) / 116; }
+static double lab_fi(double t) { return t * t * t > 216.0 / 24389 ? t * t * t : (116 * t - 16) / (24389.0 / 27); }
+
+static void rgb_to_lch(double r, double g, double b, double *L, double *C, double *H) {
+  r = lin(r); g = lin(g); b = lin(b);
+  double x = (0.4124 * r + 0.3576 * g + 0.1805 * b) / 0.95047;
+  double y = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  double z = (0.0193 * r + 0.1192 * g + 0.9505 * b) / 1.08883;
+  double fx = lab_f(x), fy = lab_f(y), fz = lab_f(z);
+  double A = 500 * (fx - fy), B = 200 * (fy - fz);
+  *L = 116 * fy - 16; *C = hypot(A, B); *H = atan2(B, A) * 180 / M_PI;
+  if (*H < 0) *H += 360;
+}
+
+/* Ton (L*), chroma, teinte -> "#rrggbb", chroma reduite si hors gamut sRGB */
+static void tone_hex(char out[8], double h, double c, double t) {
+  for (;; c = c > 1 ? c - 1 : 0) {
+    double A = c * cos(h * M_PI / 180), B = c * sin(h * M_PI / 180);
+    double fy = (t + 16) / 116, fx = fy + A / 500, fz = fy - B / 200;
+    double x = lab_fi(fx) * 0.95047, y = t > 8 ? fy * fy * fy : t / (24389.0 / 27), z = lab_fi(fz) * 1.08883;
+    double r = 3.2406 * x - 1.5372 * y - 0.4986 * z;
+    double g = -0.9689 * x + 1.8758 * y + 0.0415 * z;
+    double b = 0.0557 * x - 0.2040 * y + 1.0570 * z;
+    if ((r >= -0.001 && r <= 1.001 && g >= -0.001 && g <= 1.001 && b >= -0.001 && b <= 1.001) || c <= 0) {
+      g_snprintf(out, 8, "#%02x%02x%02x", (int)lround(CLAMP(gam(CLAMP(r, 0, 1)), 0, 1) * 255),
+                 (int)lround(CLAMP(gam(CLAMP(g, 0, 1)), 0, 1) * 255), (int)lround(CLAMP(gam(CLAMP(b, 0, 1)), 0, 1) * 255));
+      return;
+    }
+  }
+}
+
+static char GEN_HEX[2][21][8];
+
+static void build_palettes(double h, double c) {
+  /* Schema "tonal spot" : primaire franche, secondaire et neutres discrets,
+     tertiaire decalee de 60 degres. Une graine grise donne un theme gris. */
+  gboolean grey = c < 10;
+  double pc = grey ? 4 : 40, sc = grey ? 3 : 14, tc = grey ? 4 : 26, nc = grey ? 1 : 4, nvc = grey ? 2 : 8;
+  double th = fmod(h + 60, 360);
+  struct { double h, c, tl, td; } R[21] = {
+    /* surface    */ {h, nc, 98, 6},   /* c_low  */ {h, nc, 96, 10}, /* c      */ {h, nc, 94, 12},
+    /* c_high     */ {h, nc, 92, 17},  /* c_top  */ {h, nc, 90, 22}, /* on     */ {h, nc, 10, 90},
+    /* on_var     */ {h, nvc, 30, 80}, /* outl_v */ {h, nvc, 80, 30},
+    /* pri        */ {h, pc, 40, 80},  /* on_pri */ {h, pc, 100, 20}, /* pri_c */ {h, pc, 90, 30},
+    /* on_pri_c   */ {h, pc, 10, 90},  /* sec_c  */ {h, sc, 90, 30},  /* on_sec_c */ {h, sc, 10, 90},
+    /* ter        */ {th, tc, 40, 80}, /* ter_c  */ {th, tc, 90, 30}, /* on_ter_c */ {th, tc, 10, 90},
+    /* wall_a     */ {h, pc, 82, 28},  /* wall_b */ {th, tc, 84, 22}, /* wall_c */ {h, nc, 93, 8},
+    /* bar_solid  */ {h, nc, 87, 14} };
+  const char **L = (const char **)&GEN_LIGHT, **D = (const char **)&GEN_DARK;
+  for (int i = 0; i < 21; i++) {
+    tone_hex(GEN_HEX[0][i], R[i].h, R[i].c, R[i].tl);
+    tone_hex(GEN_HEX[1][i], R[i].h, R[i].c, R[i].td);
+    L[i] = GEN_HEX[0][i]; D[i] = GEN_HEX[1][i];
+  }
+}
+
+static char *conf_file(const char *name) { return g_build_filename(g_get_user_config_dir(), "lumina", name, NULL); }
+
+char *lumina_ui_wallpaper_path(void) {
+  char *p = conf_file("wallpaper");
+  if (g_file_test(p, G_FILE_TEST_IS_REGULAR)) return p;
+  g_free(p);
+  return NULL;
+}
+
+char *lumina_ui_accent(void) {
+  char *p = conf_file("accent"), *t = NULL;
+  g_file_get_contents(p, &t, NULL, NULL);
+  g_free(p);
+  if (t) g_strstrip(t);
+  if (!t || !*t) { g_free(t); return g_strdup(LUMINA_DEFAULT_ACCENT); }
+  return t;
+}
+
+/* Couleur dominante d'une photo : la teinte la plus representee parmi les
+   pixels assez colores (ponderes par leur saturation). */
+gboolean lumina_ui_image_hue(const char *path, double *h_out) {
+  GdkPixbuf *pb = gdk_pixbuf_new_from_file_at_size(path, 48, 48, NULL);
+  if (!pb) return FALSE;
+  double bins[36] = {0}, hs[36] = {0};
+  int w = gdk_pixbuf_get_width(pb), hh = gdk_pixbuf_get_height(pb), rs = gdk_pixbuf_get_rowstride(pb);
+  int nc = gdk_pixbuf_get_n_channels(pb);
+  const guchar *px = gdk_pixbuf_read_pixels(pb);
+  for (int y = 0; y < hh; y++)
+    for (int x = 0; x < w; x++) {
+      const guchar *q = px + y * rs + x * nc;
+      double L, C, H;
+      rgb_to_lch(q[0] / 255.0, q[1] / 255.0, q[2] / 255.0, &L, &C, &H);
+      if (C < 12 || L < 15 || L > 92) continue;
+      int bi = (int)(H / 10) % 36;
+      bins[bi] += C; hs[bi] += C * H;
+    }
+  g_object_unref(pb);
+  int best = -1;
+  for (int i = 0; i < 36; i++) if (bins[i] > 0 && (best < 0 || bins[i] > bins[best])) best = i;
+  if (best < 0) return FALSE;
+  *h_out = hs[best] / bins[best];
+  return TRUE;
+}
+
+/* Palettes selon ~/.config/lumina/accent : "#rrggbb", ou "wallpaper" */
+static void load_accent(void) {
+  char *a = lumina_ui_accent();
+  double h = 0, c = 0, L;
+  use_gen = FALSE;
+  if (!g_ascii_strcasecmp(a, "wallpaper")) {
+    char *w = lumina_ui_wallpaper_path();
+    if (w && lumina_ui_image_hue(w, &h)) { c = 40; use_gen = TRUE; }
+    g_free(w);
+  } else if (a[0] == '#' && strlen(a) == 7 && g_ascii_strcasecmp(a, LUMINA_DEFAULT_ACCENT)) {
+    double r, g, b;
+    hex_rgb(a, &r, &g, &b);
+    rgb_to_lch(r, g, b, &L, &c, &h);
+    use_gen = TRUE;
+  }
+  if (use_gen) build_palettes(h, c);
+  g_free(a);
+}
+
+/* Contraste eleve (Reglages > Accessibilite) : textes secondaires et
+   contours aussi marques que le texte principal. */
+static Palette HC;
+static const Palette *pick(gboolean d) {
+  const Palette *base = use_gen ? (d ? &GEN_DARK : &GEN_LIGHT) : (d ? &DARK : &LIGHT);
+  char *p = conf_file("contrast");
+  gboolean hc = g_file_test(p, G_FILE_TEST_EXISTS);
+  g_free(p);
+  if (!hc) return base;
+  HC = *base;
+  HC.on_var = HC.on; HC.outline_var = HC.on;
+  HC.surface = d ? "#000000" : "#ffffff"; HC.c_low = HC.surface;
+  return &HC;
+}
 
 const char *role_color(int r) {
   switch (r) {
@@ -93,6 +241,26 @@ static const Glyph GLYPHS[] = {
   {"gridview","<rect x='3.5' y='3.5' width='7' height='7' rx='1.5'/><rect x='13.5' y='3.5' width='7' height='7' rx='1.5'/><rect x='3.5' y='13.5' width='7' height='7' rx='1.5'/><rect x='13.5' y='13.5' width='7' height='7' rx='1.5'/>"},
   {"restore", "<path d='M4 11a8 8 0 1 1 2.3 5.7M4 5v6h6'/>"},
   {"recent",  "<circle cx='12' cy='12' r='8.5'/><path d='M12 7.5V12l3 2'/>"},
+  /* --- Bureau facon ChromeOS ------------------------------------------- */
+  {"overview","<rect x='2.5' y='5' width='8' height='14' rx='2'/><rect x='13.5' y='5' width='8' height='14' rx='2'/>"},
+  {"dnd",     "<circle cx='12' cy='12' r='9'/><path d='M7.5 12h9'/>"},
+  {"night",   "<path d='M20 14.5A8.5 8.5 0 1 1 9.5 4a7 7 0 0 0 10.5 10.5z'/><path d='M17 3.5v3M15.5 5h3'/>"},
+  {"record",  "<circle cx='12' cy='12' r='9'/><circle cx='12' cy='12' r='4' fill='currentColor' stroke='none'/>"},
+  {"capture", "<path d='M4 8V6a2 2 0 0 1 2-2h2M16 4h2a2 2 0 0 1 2 2v2M20 16v2a2 2 0 0 1-2 2h-2M8 20H6a2 2 0 0 1-2-2v-2'/><circle cx='12' cy='12' r='3'/>"},
+  {"clip",    "<rect x='5' y='4.5' width='14' height='16' rx='2.5'/><path d='M9 4.5V3.5h6v1M8.5 10h7M8.5 13.5h7M8.5 17h4'/>"},
+  {"emoji",   "<circle cx='12' cy='12' r='9'/><path d='M8.5 14.5a4 4 0 0 0 7 0'/><path d='M9 9.5h.01M15 9.5h.01'/>"},
+  {"bell",    "<path d='M6 16V11a6 6 0 0 1 12 0v5l1.5 2h-15z'/><path d='M10 20.5a2.2 2.2 0 0 0 4 0'/>"},
+  {"calc",    "<rect x='5' y='3' width='14' height='18' rx='2.5'/><path d='M8.5 7.5h7M9 12h.01M12 12h.01M15 12h.01M9 15.5h.01M12 15.5h.01M15 15.5h.01'/>"},
+  {"zoom",    "<circle cx='10.5' cy='10.5' r='6.5'/><path d='m15.4 15.4 4.1 4.1M10.5 8v5M8 10.5h5'/>"},
+  {"print",   "<path d='M7 9V3.5h10V9'/><rect x='3.5' y='9' width='17' height='8' rx='2'/><path d='M7 14h10v6.5H7z'/>"},
+  {"clock",   "<circle cx='12' cy='12' r='9'/><path d='M12 7v5l3.5 2'/>"},
+  {"mouse",   "<rect x='6' y='3' width='12' height='18' rx='6'/><path d='M12 3v6'/>"},
+  {"access",  "<circle cx='12' cy='4.5' r='1.8'/><path d='M4.5 8.5 12 10l7.5-1.5M12 10v4.5l-3.5 7M12 14.5l3.5 7'/>"},
+  {"battery", "<rect x='3' y='7' width='16' height='10' rx='2.5'/><path d='M21 10.5v3'/><path d='M6.5 10v4' />"},
+  {"shelf",   "<rect x='3' y='3.5' width='18' height='17' rx='2.5'/><path d='M3 16h18'/>"},
+  {"reset",   "<path d='M4 11a8 8 0 1 1 2.3 5.7M4 5v6h6'/><path d='M12 8v4l2.5 1.5'/>"},
+  {"user",    "<circle cx='12' cy='8.5' r='4'/><path d='M4.5 20.5a7.5 7.5 0 0 1 15 0'/>"},
+  {"monitor", "<rect x='2.5' y='4' width='19' height='13' rx='2.5'/><path d='M8 20.5h8M12 17v3.5'/>"},
 };
 
 const char *glyph_svg(const char *name) {
@@ -180,7 +348,7 @@ static void apply_css(void) {
 }
 
 static void apply_theme(gboolean on) {
-  dark = on; P = on ? &DARK : &LIGHT;
+  dark = on; P = pick(on);
   apply_css();
   for (guint i = 0; i < icons->len; i++) icon_render(icons->pdata[i]);
   g_object_set(gtk_settings_get_default(), "gtk-application-prefer-dark-theme", on, NULL);
@@ -195,12 +363,20 @@ static gboolean read_theme(void) {
   return d;
 }
 
-/* Une autre appli LuminaOS a change le theme : on suit. */
+/* Une autre appli LuminaOS a change le theme, l'accent ou le fond
+   d'ecran (fichiers de ~/.config/lumina) : on suit. */
 static void on_theme_file(GFileMonitor *m, GFile *f, GFile *o, GFileMonitorEvent ev, gpointer d) {
   if (ev != G_FILE_MONITOR_EVENT_CHANGES_DONE_HINT && ev != G_FILE_MONITOR_EVENT_CREATED &&
-      ev != G_FILE_MONITOR_EVENT_DELETED) return;
-  gboolean d2 = read_theme();
-  if (d2 != dark) apply_theme(d2);
+      ev != G_FILE_MONITOR_EVENT_DELETED && ev != G_FILE_MONITOR_EVENT_MOVED_IN &&
+      ev != G_FILE_MONITOR_EVENT_RENAMED) return;
+  GFile *t = (ev == G_FILE_MONITOR_EVENT_RENAMED && o) ? o : f;
+  char *n = g_file_get_basename(t);
+  gboolean ours = !g_strcmp0(n, "theme") || !g_strcmp0(n, "accent") || !g_strcmp0(n, "wallpaper") ||
+                  !g_strcmp0(n, "contrast");
+  g_free(n);
+  if (!ours) return;
+  load_accent();
+  apply_theme(read_theme());
 }
 
 void lumina_ui_init(const char *css_text, void (*on_theme)(void)) {
@@ -208,7 +384,8 @@ void lumina_ui_init(const char *css_text, void (*on_theme)(void)) {
   app_css = g_strdup(css_text);
   theme_cb = on_theme;
   css = gtk_css_provider_new();
-  dark = read_theme(); P = dark ? &DARK : &LIGHT;
+  load_accent();
+  dark = read_theme(); P = pick(dark);
   apply_css();
   gtk_style_context_add_provider_for_screen(gdk_screen_get_default(), GTK_STYLE_PROVIDER(css),
                                             GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
@@ -216,10 +393,19 @@ void lumina_ui_init(const char *css_text, void (*on_theme)(void)) {
 
   char *p = theme_path(), *dir = g_path_get_dirname(p);
   g_mkdir_with_parents(dir, 0755);
-  GFile *f = g_file_new_for_path(p);
-  theme_mon = g_file_monitor_file(f, G_FILE_MONITOR_NONE, NULL, NULL);
+  GFile *f = g_file_new_for_path(dir);
+  theme_mon = g_file_monitor_directory(f, G_FILE_MONITOR_WATCH_MOVES, NULL, NULL);
   if (theme_mon) g_signal_connect(theme_mon, "changed", G_CALLBACK(on_theme_file), NULL);
   g_object_unref(f); g_free(p); g_free(dir);
+}
+
+void lumina_ui_set_accent(const char *v) {
+  char *p = conf_file("accent");
+  if (!v || !g_ascii_strcasecmp(v, LUMINA_DEFAULT_ACCENT)) g_unlink(p);
+  else g_file_set_contents(p, v, -1, NULL);
+  g_free(p);
+  load_accent();
+  apply_theme(dark);
 }
 
 void lumina_ui_set_dark(gboolean on) {

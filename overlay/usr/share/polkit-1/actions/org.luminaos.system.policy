@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE policyconfig PUBLIC "-//freedesktop//DTD PolicyKit Policy Configuration 1.0//EN"
+ "http://www.freedesktop.org/standards/PolicyKit/1/policyconfig.dtd">
+<!-- Reglages systeme de la personne devant la machine (capot, canal de mises
+     a jour, reinitialisation). -->
+<policyconfig>
+  <action id="org.luminaos.system">
+    <description>Modifier les reglages systeme de LuminaOS</description>
+    <message>Modifier un reglage systeme (capot, mises a jour, reinitialisation).</message>
+    <defaults>
+      <allow_any>no</allow_any>
+      <allow_inactive>no</allow_inactive>
+      <allow_active>yes</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/local/sbin/lumina-system</annotate>
+  </action>
+</policyconfig>

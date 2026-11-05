@@ -1,0 +1,20 @@
+#!/bin/sh
+# Demarrage apres une demande de reinitialisation (Reglages > A propos >
+# Reinitialiser) : la partition d'etat est reformatee AVANT d'etre montee.
+# Compte, fichiers, reglages, Linux et Android disparaissent ; le systeme,
+# lui, est intact. On repart sur l'assistant de premier demarrage.
+set -eu
+SRC=$(findmnt -no SOURCE /)
+DISK=/dev/$(lsblk -no PKNAME "$SRC" | head -1 | tr -d ' ')
+ESP=$(lsblk -lnpo NAME,PARTLABEL "$DISK" | awk '$2 == "ESP" { print $1 }')
+STATE=$(lsblk -lnpo NAME,PARTLABEL "$DISK" | awk '$2 == "STATE" { print $1 }')
+[ -b "$ESP" ] && [ -b "$STATE" ] || exit 0
+M=$(mktemp -d /run/lumina-pw.XXXXXX)
+mount "$ESP" "$M" || { rmdir "$M"; exit 0; }
+if [ -e "$M/lumina-powerwash" ]; then
+  echo "lumina-powerwash: reinitialisation de la partition d'etat"
+  mkfs.ext4 -q -F -L LUMINA-STATE "$STATE"
+  rm -f "$M/lumina-powerwash"
+  sync
+fi
+umount "$M"; rmdir "$M"

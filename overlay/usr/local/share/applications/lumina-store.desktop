@@ -3,6 +3,7 @@ Type=Application
 Name=Boutique
 Exec=lumina-android
 X-Lumina-Glyph=store
+X-Lumina-Color=#188038
 X-Lumina-Tone=pri
 X-Lumina-Kind=Android
 TryExec=waydroid

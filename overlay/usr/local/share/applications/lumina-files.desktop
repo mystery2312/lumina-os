@@ -5,5 +5,6 @@ Exec=lumina-files %U
 MimeType=inode/directory;
 StartupWMClass=lumina-files
 X-Lumina-Glyph=files
+X-Lumina-Color=#1a73e8
 X-Lumina-Tone=sec
 X-Lumina-Kind=Système

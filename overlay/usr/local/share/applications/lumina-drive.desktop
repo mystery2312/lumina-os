@@ -6,5 +6,6 @@ Icon=lumina-drive
 # Icone officielle, telechargee sur l'appareil par lumina-fetch-icons
 X-Lumina-IconUrl=https://www.gstatic.com/images/branding/product/2x/drive_2020q4_48dp.png
 X-Lumina-Glyph=drive
+X-Lumina-Color=#f9ab00
 X-Lumina-Tone=ter
 X-Lumina-Kind=Web

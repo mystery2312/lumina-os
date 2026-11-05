@@ -34,6 +34,8 @@ case "${1:-}" in
   apply)
     if [ -s "$HASH" ]; then usermod -p "$(cat "$HASH")" "$U"; else passwd -d "$U" >/dev/null; fi
     if [ -s "$NAME" ]; then usermod -c "$(cat "$NAME")" "$U"; fi
+    # Reglages systeme conserves sur la partition d'etat (capot...)
+    lumina-system apply || true
     ;;
   set-name)
     n=$(printf '%s' "${2:-}" | tr -d '\n:' | cut -c1-64)

@@ -1,0 +1,4 @@
+# Boutons Reduire / Agrandir / Fermer pour les applis GTK et Chromium
+# (GNOME n'affiche que Fermer par defaut).
+[org.gnome.desktop.wm.preferences]
+button-layout=':minimize,maximize,close'

@@ -1,0 +1,3 @@
+# Partitions internes de LuminaOS (sur la cle comme sur le disque) : pas
+# des "appareils" a montrer dans Fichiers.
+ENV{ID_PART_ENTRY_NAME}=="ESP|ROOT-A|ROOT-B|STATE|BIOS", ENV{UDISKS_IGNORE}="1"

@@ -4,5 +4,6 @@ Name=Réglages
 Exec=lumina-settings
 StartupWMClass=lumina-settings
 X-Lumina-Glyph=set
+X-Lumina-Color=#5f6368
 X-Lumina-Tone=sec
 X-Lumina-Kind=Système

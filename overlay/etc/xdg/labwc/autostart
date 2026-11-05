@@ -3,12 +3,37 @@
 [ -r "$HOME/.config/lumina/session.conf" ] && . "$HOME/.config/lumina/session.conf"
 
 # (le rendu, GPU ou logiciel, est choisi par lumina-session avant labwc)
-lumina-shell &
+# Barre, etagere, panneaux. Relance automatique en cas de plantage (comme
+# l'interface de ChromeOS) : on ne reste jamais sans etagere ni bureau.
+(
+  n=0
+  while [ "$n" -lt 20 ]; do
+    lumina-shell && break
+    n=$((n + 1)); sleep 1
+  done
+) &
 # Notifications : mako ne lit pas /etc/xdg, on lui donne sa configuration
 # (sinon il demarrerait a la premiere notification, avec son style par defaut).
 mako -c /etc/xdg/mako/config &
 # ... dans le mode du theme en cours (les changements ensuite : lumina-shell)
-( sleep 2; [ "$(cat "$HOME/.config/lumina/theme" 2>/dev/null)" = dark ] && makoctl mode -s dark ) &
+( sleep 2; [ "$(cat "$HOME/.config/lumina/theme" 2>/dev/null)" = dark ] && makoctl mode -a dark ) &
+# Historique du presse-papiers (Windows + V) : textes et images copies
+wl-paste --type text --watch cliphist -max-items 50 store &
+wl-paste --type image --watch cliphist -max-items 50 store &
+
+# Ecrans : reglages de l'utilisateur, puis definition suivie en direct
+# (branchement d'un ecran, fenetre de VM redimensionnee)
+lumina-displays apply
+lumina-display-follow &
+# Lecteur d'ecran (Reglages > Accessibilite)
+[ -e "$HOME/.config/lumina/screenreader" ] && orca &
+# Premier lancement de Chromium plus rapide : ses ~250 Mo sont lus a
+# l'avance, en tache de fond et en priorite minimale, pendant que
+# l'utilisateur decouvre le bureau (gain net sur cle USB ou disque dur).
+# Le cache disque se libere de lui-meme si la memoire vient a manquer.
+( sleep 20; ionice -c3 nice -n19 find /usr/lib/chromium -type f -size +512k -exec cat {} + >/dev/null 2>&1 ) &
+# Icones officielles des applis web (Gmail, Drive...), une fois en ligne.
+lumina-fetch-icons &
 
 APPS="$HOME/.local/share/applications"
 [ -r /var/lib/lumina/config/account.conf ] && . /var/lib/lumina/config/account.conf

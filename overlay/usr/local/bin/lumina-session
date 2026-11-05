@@ -52,11 +52,11 @@ echo "$GPU" > "$RUN/lumina-gpu"
 
 if [ "$GPU" = software ]; then
   export WLR_RENDERER=pixman
-  exec labwc
+  exec labwc -m
 fi
 
 start=$(date +%s)
-labwc
+labwc -m
 rc=$?
 # Plantage dans les 20 s : le GPU annonce une acceleration qu'il ne tient
 # pas. Rendu logiciel jusqu'au prochain demarrage ; systemd relance.

@@ -1,0 +1,19 @@
+#!/bin/sh
+# Enregistrement de l'ecran, facon ChromeOS : un appel demarre, le suivant
+# arrete (Ctrl + Impr, tuile des reglages rapides, bouton rouge de la barre).
+# Video dans Videos > Enregistrements d'ecran, ecran principal, sans son.
+DIR="$HOME/Vidéos/Enregistrements d'écran"
+if pgrep -x wf-recorder >/dev/null; then
+  pkill -INT -x wf-recorder
+  # Laisser wf-recorder finir d'ecrire le fichier
+  for _ in 1 2 3 4 5 6 7 8 9 10; do pgrep -x wf-recorder >/dev/null || break; sleep 0.5; done
+  notify-send -a "Enregistrement de l'écran" "Enregistrement terminé" "Dans Vidéos › Enregistrements d'écran"
+else
+  mkdir -p "$DIR"
+  F="$DIR/Enregistrement $(date '+%Y-%m-%d %H.%M.%S').mp4"
+  OUT=$(wlr-randr 2>/dev/null | awk '/^[^ ]/ { o = $1 } /^  Enabled: yes/ { print o; exit }')
+  notify-send -a "Enregistrement de l'écran" "Enregistrement en cours" "Ctrl + Impr ou le bouton rouge en haut pour arrêter"
+  # Codage rapide (ultrafast) : un vieux processeur suit sans saccades
+  setsid wf-recorder ${OUT:+-o "$OUT"} -c libx264 -p preset=ultrafast -p crf=26 -f "$F" >/dev/null 2>&1 &
+fi
+lumina-shell --action refresh >/dev/null 2>&1 || true

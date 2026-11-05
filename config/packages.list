@@ -118,3 +118,23 @@ e2fsprogs
 dosfstools
 less
 nano
+
+# --- Fonctions facon ChromeOS -----------------------------------------
+# Eclairage nocturne (filtre chaud le soir)
+wlsunset
+# Enregistrement de l'ecran
+wf-recorder
+# Presse-papiers : historique (Windows + V), copie et frappe d'emojis
+wl-clipboard
+cliphist
+wtype
+# Ecrans : affichage recopie (meme image sur deux ecrans)
+wl-mirror
+# Impression : imprimantes reseau et USB detectees sans pilote (IPP)
+cups
+cups-browsed
+avahi-daemon
+# Accessibilite : lecteur d'ecran (synthese vocale)
+orca
+# Imprimantes USB recentes (IPP sur USB, sans pilote)
+ipp-usb

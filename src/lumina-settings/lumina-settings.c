@@ -7,19 +7,22 @@
  * (iwctl, bluetoothctl, wpctl, brightnessctl) ou par les programmes
  * LuminaOS en administrateur (pkexec lumina-account, lumina-android...).
  *
- * Usage : lumina-settings [section]   (reseau, bluetooth, affichage, son,
- *         clavier, compte, linux, android, maj, stockage, apropos)
+ * Usage : lumina-settings [section]   (reseau, bluetooth, affichage, ecrans,
+ *         son, clavier, souris, compte, linux, android, imprimantes, heure,
+ *         energie, accessibilite, raccourcis, maj, stockage, apropos)
  */
 #include "lumina-ui.h"
 #include "lumina-sys.h"
 #include <string.h>
 #include <stdlib.h>
 #include <sys/statvfs.h>
+#include <glib/gstdio.h>
+#include <math.h>
 
 static const char *CSS =
   "* { font-family: 'Roboto', 'DejaVu Sans', sans-serif; }\n"
   "button { background-image: none; border: none; box-shadow: none; text-shadow: none; outline: none; }\n"
-  "window.lumina-settings.csd { border-radius: 16px; background: @surface; }\n"
+  "window.lumina-settings.csd { border-radius: 0 0 16px 16px; background: @surface; }\n"
   "window.lumina-settings.csd decoration { border-radius: 16px;\n"
   "  box-shadow: 0 6px 22px alpha(black, 0.18), 0 0 0 1px alpha(black, 0.06); }\n"
   "window.lumina-settings.maximized, window.lumina-settings.tiled,\n"
@@ -29,14 +32,16 @@ static const char *CSS =
   ".header button.titlebutton { background: transparent; border-radius: 16px; min-width: 32px; min-height: 32px; color: @on_var; }\n"
   ".header button.titlebutton:hover { background: alpha(@on, 0.08); }\n"
   ".apptitle { font-size: 16px; color: @on; padding-left: 8px; }\n"
-  ".nav { background: @surface; padding: 4px 12px 12px 12px; }\n"
+  ".nav { background: @surface; padding: 4px 12px 12px 12px; border-radius: 0 0 0 16px; }\n"
+  "window.maximized .nav, window.tiled .nav { border-radius: 0; }\n"
   ".nav list, .nav row { background: transparent; }\n"
   ".nav row { border-radius: 24px; padding: 0; margin: 1px 0; }\n"
   ".nav row:hover { background: alpha(@on, 0.06); }\n"
   ".nav row:selected { background: @sec_c; color: @on_sec_c; }\n"
   ".nav .item { padding: 10px 14px; }\n"
   ".nav .item label { font-size: 13.5px; }\n"
-  ".content { background: @c_low; border-radius: 20px 0 0 0; }\n"
+  ".content { background: @c_low; border-radius: 20px 0 16px 0; }\n"
+  "window.maximized .content, window.tiled .content { border-radius: 20px 0 0 0; }\n"
   ".page { padding: 24px 32px 32px 32px; }\n"
   ".h1 { font-size: 26px; color: @on; }\n"
   ".h2 { font-size: 13px; font-weight: 500; color: @pri; margin-top: 10px; }\n"
@@ -52,6 +57,12 @@ static const char *CSS =
   ".fbtn { background: @pri; color: @on_pri; border-radius: 20px; padding: 8px 18px; font-weight: 500; }\n"
   ".fbtn:disabled { background: alpha(@on, 0.12); color: alpha(@on, 0.38); }\n"
   ".fbtn.danger { background: #ba1a1a; color: #ffffff; }\n"
+  ".tbtn.danger { color: #ba1a1a; }\n"
+  ".kbd { background: @c_high; color: @on; border-radius: 8px; padding: 4px 10px; font-size: 12.5px; font-weight: 500; }\n"
+  ".swatch { background: transparent; padding: 0; border-radius: 22px; min-width: 44px; min-height: 44px; }\n"
+  ".swatch:hover { background: alpha(@on, 0.06); }\n"
+  ".swatches { padding: 4px 14px 14px 14px; }\n"
+  ".wallprev { border-radius: 12px; }\n"
   ".field { background: @c_low; color: @on; border: 1px solid @outline_var; border-radius: 8px; padding: 9px 12px;\n"
   "         box-shadow: none; caret-color: @pri; }\n"
   ".field:focus { border: 2px solid @pri; padding: 8px 11px; }\n"
@@ -74,6 +85,12 @@ static const char *CSS =
   "combobox button { background: @c_low; border: 1px solid @outline_var; border-radius: 8px; color: @on; }\n";
 
 static GtkWidget *win, *nav, *stack;
+/* settings-more.c */
+static void updates_more(GtkWidget *p);
+static void about_more(GtkWidget *p);
+static void linux_more(GtkWidget *grp, gboolean installed);
+static void fill_screens(void);
+static void fill_printers(void);
 
 /* ------------------------------------------------------------------ */
 /* Briques d'interface                                                 */
@@ -159,17 +176,42 @@ static void clear_box(GtkWidget *b) {
   g_list_free(k);
 }
 
-/* Commande en administrateur via pkexec, avec une entree eventuelle. */
-static gboolean run_root(const char *const *argv, const char *input, char **err_out) {
+/* Commande en administrateur via pkexec, avec une entree eventuelle.
+   Asynchrone : la fenetre reste reactive pendant que pkexec et la
+   commande travaillent (plusieurs secondes sur une cle USB lente : figee,
+   la fenetre donnait l'impression d'un plantage). done() est appele avec
+   le resultat ; le message d'erreur lui appartient le temps de l'appel. */
+typedef void (*RootDone)(gboolean ok, const char *err, gpointer d);
+typedef struct { RootDone done; gpointer d; } RootCall;
+static void root_finished(GObject *o, GAsyncResult *res, gpointer p) {
+  RootCall *c = p;
+  GSubprocess *sp = G_SUBPROCESS(o);
+  char *errs = NULL; GError *err = NULL;
+  gboolean ok = g_subprocess_communicate_utf8_finish(sp, res, NULL, &errs, &err) && g_subprocess_get_successful(sp);
+  c->done(ok, ok ? NULL : (errs && *g_strstrip(errs) ? errs : "Opération refusée."), c->d);
+  g_free(errs); g_clear_error(&err); g_object_unref(sp); g_free(c);
+}
+static void run_root_async(const char *const *argv, const char *input, RootDone done, gpointer d) {
   GError *err = NULL;
   GSubprocess *sp = g_subprocess_newv(argv, G_SUBPROCESS_FLAGS_STDIN_PIPE | G_SUBPROCESS_FLAGS_STDOUT_SILENCE |
                                       G_SUBPROCESS_FLAGS_STDERR_PIPE, &err);
-  if (!sp) { if (err_out) *err_out = g_strdup(err->message); g_clear_error(&err); return FALSE; }
-  char *errs = NULL;
-  gboolean ok = g_subprocess_communicate_utf8(sp, input, NULL, NULL, &errs, &err) && g_subprocess_get_successful(sp);
-  if (!ok && err_out) *err_out = g_strdup(errs && *errs ? g_strstrip(errs) : "Opération refusée.");
-  g_free(errs); g_clear_error(&err); g_object_unref(sp);
-  return ok;
+  if (!sp) { done(FALSE, err->message, d); g_clear_error(&err); return; }
+  RootCall *c = g_new0(RootCall, 1); c->done = done; c->d = d;
+  g_subprocess_communicate_utf8_async(sp, input, NULL, root_finished, c);
+}
+
+/* Bouton occupe pendant une operation : grise, texte d'attente. */
+static void busy(GtkWidget *b, const char *text) {
+  const char *cur = gtk_button_get_label(GTK_BUTTON(b));
+  if (text) {
+    g_object_set_data_full(G_OBJECT(b), "idle-label", g_strdup(cur), g_free);
+    gtk_button_set_label(GTK_BUTTON(b), text);
+    gtk_widget_set_sensitive(b, FALSE);
+  } else {
+    const char *l = g_object_get_data(G_OBJECT(b), "idle-label");
+    if (l) gtk_button_set_label(GTK_BUTTON(b), l);
+    gtk_widget_set_sensitive(b, TRUE);
+  }
 }
 
 static char *user_conf_path(void) { return g_build_filename(g_get_user_config_dir(), "lumina", "session.conf", NULL); }
@@ -464,6 +506,160 @@ static void on_delay(GtkComboBox *c, gpointer d) {
   spawn_async(argv);
 }
 
+
+/* ------------------------------------------------------------------ */
+/* Fond d'ecran et couleur du theme (facon ChromeOS / Chrome)          */
+/* ------------------------------------------------------------------ */
+static const struct { const char *hex, *name; } ACCENTS[] = {
+  {LUMINA_DEFAULT_ACCENT, "Vert (par défaut)"}, {"#1f6fb5", "Bleu"}, {"#4355b9", "Indigo"},
+  {"#7b4fa0", "Violet"}, {"#a83f6e", "Rose"}, {"#b3261e", "Rouge"}, {"#b25b14", "Orange"},
+  {"#8a6d00", "Ambre"}, {"#5d6b1e", "Olive"}, {"#6b6f72", "Gris"},
+};
+static GtkWidget *swatch_box, *wall_sub, *wall_reset, *wall_prev;
+static void fill_swatches(void);
+
+static gboolean draw_swatch(GtkWidget *w, cairo_t *cr, gpointer d) {
+  const char *hex = d;
+  double W = gtk_widget_get_allocated_width(w), H = gtk_widget_get_allocated_height(w), r, g, b;
+  double cx = W / 2, cy = H / 2;
+  char *cur = lumina_ui_accent();
+  gboolean sel = !g_ascii_strcasecmp(cur, hex);
+  g_free(cur);
+  if (!strcmp(hex, "wallpaper")) {
+    /* Pastille "selon la photo" : quatre quarts aux couleurs de la palette */
+    const char *q[] = {P->pri, P->ter, P->sec_c, P->pri_c};
+    for (int i = 0; i < 4; i++) {
+      hex_rgb(q[i], &r, &g, &b);
+      cairo_set_source_rgb(cr, r, g, b);
+      cairo_move_to(cr, cx, cy);
+      cairo_arc(cr, cx, cy, 15, i * M_PI / 2, (i + 1) * M_PI / 2);
+      cairo_close_path(cr); cairo_fill(cr);
+    }
+  } else {
+    hex_rgb(hex, &r, &g, &b);
+    cairo_set_source_rgb(cr, r, g, b);
+    cairo_arc(cr, cx, cy, 15, 0, 2 * M_PI); cairo_fill(cr);
+  }
+  if (sel) {
+    hex_rgb(P->on, &r, &g, &b);
+    cairo_set_source_rgb(cr, r, g, b);
+    cairo_set_line_width(cr, 2.5);
+    cairo_arc(cr, cx, cy, 19.5, 0, 2 * M_PI); cairo_stroke(cr);
+    /* coche */
+    cairo_set_source_rgb(cr, 1, 1, 1);
+    cairo_set_line_width(cr, 2.2);
+    cairo_move_to(cr, cx - 5.5, cy); cairo_line_to(cr, cx - 1.5, cy + 4); cairo_line_to(cr, cx + 6, cy - 4.5);
+    cairo_stroke(cr);
+  }
+  return FALSE;
+}
+
+static void on_swatch(GtkButton *b, gpointer d) {
+  lumina_ui_set_accent(d);
+  gtk_widget_queue_draw(swatch_box);
+}
+
+static GtkWidget *swatch(const char *hex, const char *name) {
+  GtkWidget *b = gtk_button_new();
+  add_class(b, "swatch");
+  gtk_widget_set_tooltip_text(b, name);
+  GtkWidget *a = gtk_drawing_area_new();
+  gtk_widget_set_size_request(a, 44, 44);
+  g_signal_connect(a, "draw", G_CALLBACK(draw_swatch), (gpointer)hex);
+  gtk_container_add(GTK_CONTAINER(b), a);
+  g_signal_connect(b, "clicked", G_CALLBACK(on_swatch), (gpointer)hex);
+  return b;
+}
+
+static void fill_swatches(void) {
+  clear_box(swatch_box);
+  char *wp = lumina_ui_wallpaper_path();
+  if (wp) gtk_flow_box_insert(GTK_FLOW_BOX(swatch_box), swatch("wallpaper", "Selon le fond d'écran"), -1);
+  g_free(wp);
+  for (guint i = 0; i < G_N_ELEMENTS(ACCENTS); i++)
+    gtk_flow_box_insert(GTK_FLOW_BOX(swatch_box), swatch(ACCENTS[i].hex, ACCENTS[i].name), -1);
+  gtk_widget_show_all(swatch_box);
+}
+
+static void update_wall_row(void) {
+  char *wp = lumina_ui_wallpaper_path();
+  gtk_label_set_text(GTK_LABEL(wall_sub), wp ? "Votre photo" : "Dégradé LuminaOS, aux couleurs du thème");
+  gtk_widget_set_visible(wall_reset, wp != NULL);
+  GdkPixbuf *pb = wp ? gdk_pixbuf_new_from_file_at_scale(wp, 96, 60, FALSE, NULL) : NULL;
+  if (pb) { gtk_image_set_from_pixbuf(GTK_IMAGE(wall_prev), pb); g_object_unref(pb); gtk_widget_show(wall_prev); }
+  else gtk_widget_hide(wall_prev);
+  g_free(wp);
+  fill_swatches();
+}
+
+static void on_wall_choose(GtkButton *btn, gpointer d) {
+  GtkFileChooserNative *fc = gtk_file_chooser_native_new("Choisir un fond d'écran", GTK_WINDOW(win),
+                                                         GTK_FILE_CHOOSER_ACTION_OPEN, "Choisir", "Annuler");
+  GtkFileFilter *f = gtk_file_filter_new();
+  gtk_file_filter_set_name(f, "Images");
+  gtk_file_filter_add_pixbuf_formats(f);
+  gtk_file_chooser_add_filter(GTK_FILE_CHOOSER(fc), f);
+  const char *pics = g_get_user_special_dir(G_USER_DIRECTORY_PICTURES);
+  if (pics) gtk_file_chooser_set_current_folder(GTK_FILE_CHOOSER(fc), pics);
+  if (gtk_native_dialog_run(GTK_NATIVE_DIALOG(fc)) == GTK_RESPONSE_ACCEPT) {
+    char *src = gtk_file_chooser_get_filename(GTK_FILE_CHOOSER(fc));
+    GdkPixbufFormat *fmt = src ? gdk_pixbuf_get_file_info(src, NULL, NULL) : NULL;
+    if (fmt) {
+      /* Copie dans ~/.config/lumina : la photo d'origine peut etre
+         deplacee ou supprimee sans que le fond d'ecran disparaisse. */
+      char *dst = g_build_filename(g_get_user_config_dir(), "lumina", "wallpaper", NULL);
+      char *tmp = g_strconcat(dst, ".tmp", NULL);
+      GFile *fs = g_file_new_for_path(src), *ft = g_file_new_for_path(tmp);
+      if (g_file_copy(fs, ft, G_FILE_COPY_OVERWRITE, NULL, NULL, NULL, NULL)) {
+        g_rename(tmp, dst);
+        /* Comme sur ChromeOS : une nouvelle photo donne ses couleurs au
+           theme, sauf si l'utilisateur a choisi une couleur lui-meme. */
+        char *acc = lumina_ui_accent();
+        if (!g_ascii_strcasecmp(acc, LUMINA_DEFAULT_ACCENT)) lumina_ui_set_accent("wallpaper");
+        else lumina_ui_set_accent(acc);
+        g_free(acc);
+      }
+      g_object_unref(fs); g_object_unref(ft); g_free(tmp); g_free(dst);
+    }
+    g_free(src);
+  }
+  g_object_unref(fc);
+  update_wall_row();
+}
+
+static void on_wall_reset(GtkButton *b, gpointer d) {
+  char *p = g_build_filename(g_get_user_config_dir(), "lumina", "wallpaper", NULL);
+  g_unlink(p);
+  g_free(p);
+  char *acc = lumina_ui_accent();
+  lumina_ui_set_accent(!g_ascii_strcasecmp(acc, "wallpaper") ? NULL : acc);
+  g_free(acc);
+  update_wall_row();
+}
+
+static void build_personalize(GtkWidget *p) {
+  GtkWidget *g = group(p, "Fond d'écran et couleurs");
+  GtkWidget *end = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+  wall_prev = gtk_image_new();
+  add_class(wall_prev, "wallprev");
+  gtk_widget_set_no_show_all(wall_prev, TRUE);
+  gtk_container_add(GTK_CONTAINER(end), wall_prev);
+  wall_reset = button("Par défaut", "tbtn", G_CALLBACK(on_wall_reset), NULL);
+  gtk_widget_set_no_show_all(wall_reset, TRUE);
+  gtk_container_add(GTK_CONTAINER(end), wall_reset);
+  gtk_container_add(GTK_CONTAINER(end), button("Choisir une photo…", "fbtn", G_CALLBACK(on_wall_choose), NULL));
+  row(g, "Fond d'écran", "", end, &wall_sub);
+  row(g, "Couleur du thème", "Barre, étagère, applis LuminaOS et boutons", NULL, NULL);
+  swatch_box = gtk_flow_box_new();
+  add_class(swatch_box, "swatches");
+  gtk_flow_box_set_selection_mode(GTK_FLOW_BOX(swatch_box), GTK_SELECTION_NONE);
+  gtk_flow_box_set_max_children_per_line(GTK_FLOW_BOX(swatch_box), 11);
+  gtk_flow_box_set_column_spacing(GTK_FLOW_BOX(swatch_box), 2);
+  gtk_flow_box_set_homogeneous(GTK_FLOW_BOX(swatch_box), TRUE);
+  gtk_container_add(GTK_CONTAINER(g), swatch_box);
+  update_wall_row();
+}
+
 static void build_display(void) {
   GtkWidget *p = page_box("affichage", "Affichage");
   GtkWidget *g = group(p, NULL);
@@ -471,6 +667,7 @@ static void build_display(void) {
   dark_lock = TRUE; gtk_switch_set_active(GTK_SWITCH(dark_sw), dark); dark_lock = FALSE;
   g_signal_connect(dark_sw, "notify::active", G_CALLBACK(on_dark), NULL);
   row(g, "Thème sombre", "Bureau, applis LuminaOS et pages web compatibles", dark_sw, NULL);
+  build_personalize(p);
 
   GDir *d = g_dir_open("/sys/class/backlight", 0, NULL);
   gboolean bl = d && g_dir_read_name(d);
@@ -613,7 +810,7 @@ static void build_keyboard(void) {
 /* ------------------------------------------------------------------ */
 /* Compte et verrouillage                                              */
 /* ------------------------------------------------------------------ */
-static GtkWidget *name_e, *old_e, *new_e, *new2_e, *acc_msg;
+static GtkWidget *name_e, *old_e, *new_e, *new2_e, *name_msg, *pw_msg;
 
 static gboolean has_password(void) {
   char *a = read_file("/var/lib/lumina/config/account.conf");
@@ -622,25 +819,31 @@ static gboolean has_password(void) {
   return r;
 }
 
+static void name_done(gboolean ok, const char *err, gpointer b) {
+  busy(b, NULL);
+  say(name_msg, ok ? "Nom enregistré." : err, !ok);
+}
 static void on_save_name(GtkWidget *w, gpointer d) {
   const char *argv[] = {"pkexec", "/usr/local/sbin/lumina-account", "set-name", gtk_entry_get_text(GTK_ENTRY(name_e)), NULL};
-  char *err = NULL;
-  gboolean ok = run_root(argv, NULL, &err);
-  say(acc_msg, ok ? "Nom enregistré." : err, !ok);
-  g_free(err);
+  busy(w, "Enregistrement…");
+  run_root_async(argv, NULL, name_done, w);
 }
 
+static void pw_done(gboolean ok, const char *err, gpointer b) {
+  busy(b, NULL);
+  const char *a = gtk_entry_get_text(GTK_ENTRY(new_e));
+  say(pw_msg, ok ? (*a ? "Mot de passe modifié." : "Mot de passe supprimé : l'écran ne se verrouillera plus.") : err, !ok);
+  if (ok) { if (old_e) gtk_entry_set_text(GTK_ENTRY(old_e), ""); gtk_entry_set_text(GTK_ENTRY(new_e), ""); gtk_entry_set_text(GTK_ENTRY(new2_e), ""); }
+}
 static void on_save_pw(GtkWidget *w, gpointer d) {
   const char *a = gtk_entry_get_text(GTK_ENTRY(new_e)), *b = gtk_entry_get_text(GTK_ENTRY(new2_e));
-  if (*a && strlen(a) < 4) { say(acc_msg, "Au moins 4 caractères.", TRUE); return; }
-  if (strcmp(a, b)) { say(acc_msg, "Les deux mots de passe ne correspondent pas.", TRUE); return; }
+  if (*a && strlen(a) < 4) { say(pw_msg, "Au moins 4 caractères.", TRUE); return; }
+  if (strcmp(a, b)) { say(pw_msg, "Les deux mots de passe ne correspondent pas.", TRUE); return; }
   char *in = g_strdup_printf("%s\n%s\n", old_e ? gtk_entry_get_text(GTK_ENTRY(old_e)) : "", a);
   const char *argv[] = {"pkexec", "/usr/local/sbin/lumina-account", "set-password", NULL};
-  char *err = NULL;
-  gboolean ok = run_root(argv, in, &err);
-  say(acc_msg, ok ? (*a ? "Mot de passe modifié." : "Mot de passe supprimé : l'écran ne se verrouillera plus.") : err, !ok);
-  if (ok) { if (old_e) gtk_entry_set_text(GTK_ENTRY(old_e), ""); gtk_entry_set_text(GTK_ENTRY(new_e), ""); gtk_entry_set_text(GTK_ENTRY(new2_e), ""); }
-  g_free(in); g_free(err);
+  busy(w, "Enregistrement…");
+  run_root_async(argv, in, pw_done, w);
+  g_free(in);
 }
 
 static void build_account(void) {
@@ -656,18 +859,26 @@ static void build_account(void) {
   gtk_container_add(GTK_CONTAINER(nb), button("Enregistrer", "tbtn", G_CALLBACK(on_save_name), NULL));
   add_class(nb, "row");
   gtk_container_add(GTK_CONTAINER(g), nb);
+  /* Messages sous le champ concerne : en bas de page, ils etaient hors de vue. */
+  name_msg = label("", "msg", 0);
+  gtk_widget_set_no_show_all(name_msg, TRUE);
+  gtk_widget_set_margin_start(name_msg, 20); gtk_widget_set_margin_bottom(name_msg, 10);
+  gtk_container_add(GTK_CONTAINER(g), name_msg);
 
-  GtkWidget *g2 = group(p, "Mot de passe");
+  GtkWidget *g2 = group(p, "Mot de passe ou code PIN");
   GtkWidget *pb = gtk_box_new(GTK_ORIENTATION_VERTICAL, 8);
   add_class(pb, "row");
   old_e = NULL;
-  if (has_password()) { old_e = field("Mot de passe actuel", TRUE); gtk_container_add(GTK_CONTAINER(pb), old_e); }
-  new_e = field("Nouveau mot de passe (vide : aucun)", TRUE);
+  if (has_password()) { old_e = field("Mot de passe ou code PIN actuel", TRUE); gtk_container_add(GTK_CONTAINER(pb), old_e); }
+  new_e = field("Nouveau mot de passe ou code PIN, 4 caractères minimum (vide : aucun)", TRUE);
   new2_e = field("Confirmez", TRUE);
   gtk_container_add(GTK_CONTAINER(pb), new_e);
   gtk_container_add(GTK_CONTAINER(pb), new2_e);
   GtkWidget *sb = button("Changer le mot de passe", "fbtn", G_CALLBACK(on_save_pw), NULL);
   gtk_widget_set_halign(sb, GTK_ALIGN_END);
+  pw_msg = label("", "msg", 0);
+  gtk_widget_set_no_show_all(pw_msg, TRUE);
+  gtk_container_add(GTK_CONTAINER(pb), pw_msg);
   gtk_container_add(GTK_CONTAINER(pb), sb);
   gtk_container_add(GTK_CONTAINER(g2), pb);
 
@@ -675,48 +886,143 @@ static void build_account(void) {
   GtkWidget *c = delay_combo("LUMINA_LOCK_DELAY", 300);
   g_signal_connect(c, "changed", G_CALLBACK(on_delay), NULL);
   row(g3, "Verrouiller après", "Sans activité. Windows + L verrouille immédiatement.", c, NULL);
-  acc_msg = label("", "msg", 0);
-  gtk_widget_set_no_show_all(acc_msg, TRUE);
-  gtk_container_add(GTK_CONTAINER(p), acc_msg);
 }
 
 /* ------------------------------------------------------------------ */
 /* Linux, Android                                                      */
 /* ------------------------------------------------------------------ */
-static GtkWidget *linux_msg;
+/* Comme la page Linux de ChromeOS : etat reel du conteneur, relu a chaque
+   affichage de la page (l'installation se fait dans le Terminal, a cote),
+   espace occupe, mise a jour, suppression. */
+static GtkWidget *linux_grp, *linux_msg;
+static void refresh_linux(void);
 
-static gboolean linux_installed(void) {
-  const char *argv[] = {"podman", "container", "exists", "linux", NULL};
-  int st = -1;
-  g_free(run_argv(argv, &st));
-  return st == 0;
+static void open_terminal(const char *const *cmd) {
+  GPtrArray *a = g_ptr_array_new();
+  const char *pre[] = {"foot", "-a", "lumina-terminal", "-T", "Terminal"};
+  for (guint i = 0; i < G_N_ELEMENTS(pre); i++) g_ptr_array_add(a, (gpointer)pre[i]);
+  for (const char *const *c = cmd; *c; c++) g_ptr_array_add(a, (gpointer)*c);
+  g_ptr_array_add(a, NULL);
+  spawn_async((const char *const *)a->pdata);
+  g_ptr_array_free(a, TRUE);
 }
 
+static void on_linux_open(GtkWidget *w, gpointer d) {
+  const char *c[] = {"lumina-linux", NULL};
+  open_terminal(c);
+}
 static void on_linux_install(GtkWidget *w, gpointer d) {
-  const char *argv[] = {"foot", "-a", "lumina-terminal", "-T", "Terminal", "lumina-linux", NULL};
-  spawn_async(argv);
+  const char *c[] = {"env", "LUMINA_LINUX_YES=1", "lumina-linux", NULL};
+  open_terminal(c);
+  say(linux_msg, "Installation dans la fenêtre Terminal. Cette page se met à jour quand Linux est prêt.", FALSE);
+}
+static void on_linux_upgrade(GtkWidget *w, gpointer d) {
+  const char *c[] = {"lumina-linux", "--upgrade", NULL};
+  open_terminal(c);
 }
 
-static void do_linux_remove(GtkWidget *w, gpointer d) {
-  const char *argv[] = {"lumina-linux", "--remove", NULL};
-  int st = -1;
-  g_free(run_argv(argv, &st));
-  say(linux_msg, st == 0 ? "Linux a été supprimé." : "La suppression a échoué.", st != 0);
+static void linux_removed(GObject *o, GAsyncResult *res, gpointer d) {
+  gboolean ok = g_subprocess_wait_check_finish(G_SUBPROCESS(o), res, NULL);
+  g_object_unref(o);
+  say(linux_msg, ok ? "Linux a été supprimé. Vos fichiers personnels sont intacts." : "La suppression a échoué.", !ok);
+  refresh_linux();
+}
+static void on_linux_remove(GtkWidget *w, gpointer d) {
+  GtkWidget *dlg = gtk_message_dialog_new(GTK_WINDOW(win), GTK_DIALOG_MODAL, GTK_MESSAGE_QUESTION, GTK_BUTTONS_NONE,
+                                          "Supprimer Linux ?");
+  gtk_message_dialog_format_secondary_text(GTK_MESSAGE_DIALOG(dlg),
+      "Le conteneur Debian et toutes les applis Linux installées seront effacés. "
+      "Vos fichiers personnels (Documents, Téléchargements…) sont conservés.");
+  gtk_dialog_add_buttons(GTK_DIALOG(dlg), "Annuler", GTK_RESPONSE_CANCEL, "Supprimer", GTK_RESPONSE_ACCEPT, NULL);
+  int r = gtk_dialog_run(GTK_DIALOG(dlg));
+  gtk_widget_destroy(dlg);
+  if (r != GTK_RESPONSE_ACCEPT) return;
+  busy(w, "Suppression…");
+  GSubprocess *sp = g_subprocess_new(G_SUBPROCESS_FLAGS_STDOUT_SILENCE | G_SUBPROCESS_FLAGS_STDERR_SILENCE, NULL,
+                                     "lumina-linux", "--remove", NULL);
+  if (sp) g_subprocess_wait_check_async(sp, NULL, linux_removed, NULL);
+  else busy(w, NULL);
+}
+
+/* Espace occupe par le conteneur : du peut prendre quelques secondes. */
+static void linux_size_done(GObject *o, GAsyncResult *res, gpointer lbl) {
+  char *out = NULL;
+  if (g_subprocess_communicate_utf8_finish(G_SUBPROCESS(o), res, &out, NULL, NULL) && out && GTK_IS_LABEL(lbl)) {
+    char *sz = g_format_size(g_ascii_strtoull(out, NULL, 10));
+    gtk_label_set_text(GTK_LABEL(lbl), sz);
+    g_free(sz);
+  }
+  g_free(out); g_object_unref(o);
+  if (lbl) g_object_unref(lbl);
+}
+
+static int linux_app_count(void) {
+  char *dir = g_build_filename(g_get_user_data_dir(), "applications", NULL);
+  GDir *d = g_dir_open(dir, 0, NULL);
+  int n = 0;
+  const char *f;
+  while (d && (f = g_dir_read_name(d))) if (g_str_has_prefix(f, "linux-") && g_str_has_suffix(f, ".desktop")) n++;
+  if (d) g_dir_close(d);
+  g_free(dir);
+  return n;
+}
+
+static gboolean linux_poll(gpointer d) {
+  if (!g_strcmp0(gtk_stack_get_visible_child_name(GTK_STACK(stack)), "linux")) refresh_linux();
+  return G_SOURCE_REMOVE;
+}
+
+static void linux_state_done(GObject *o, GAsyncResult *res, gpointer d) {
+  gboolean installed = g_subprocess_wait_check_finish(G_SUBPROCESS(o), res, NULL);
+  g_object_unref(o);
+  clear_box(linux_grp);
+  char *mark = g_build_filename(g_get_user_runtime_dir(), "lumina-linux-setup", NULL);
+  gboolean installing = g_file_test(mark, G_FILE_TEST_EXISTS);
+  g_free(mark);
+  if (installing) {
+    row(linux_grp, "Installation en cours…", "Suivez la progression dans la fenêtre Terminal.", NULL, NULL);
+    g_timeout_add_seconds(4, linux_poll, NULL);
+  } else if (installed) {
+    row(linux_grp, "Linux est installé", "Debian 13 dans un conteneur. Installez des applis avec : sudo apt install <paquet>",
+        button("Ouvrir le Terminal", "fbtn", G_CALLBACK(on_linux_open), NULL), NULL);
+    int n = linux_app_count();
+    char *apps = n ? g_strdup_printf("%d appli%s graphique%s dans le tiroir", n, n > 1 ? "s" : "", n > 1 ? "s" : "")
+                   : g_strdup("Aucune appli graphique pour l'instant");
+    row(linux_grp, "Applis Linux", apps, NULL, NULL);
+    g_free(apps);
+    GtkWidget *sz = label("Calcul…", "s", 1);
+    row(linux_grp, "Espace utilisé", NULL, sz, NULL);
+    char *store = g_build_filename(g_get_user_data_dir(), "containers", NULL);
+    char *cmd = g_strdup_printf("du -sb '%s' 2>/dev/null | cut -f1", store);
+    GSubprocess *sp = g_subprocess_new(G_SUBPROCESS_FLAGS_STDOUT_PIPE | G_SUBPROCESS_FLAGS_STDERR_SILENCE, NULL,
+                                       "sh", "-c", cmd, NULL);
+    if (sp) g_subprocess_communicate_utf8_async(sp, NULL, NULL, linux_size_done, g_object_ref(sz));
+    g_free(store); g_free(cmd);
+    row(linux_grp, "Mettre à jour Linux", "Met à jour les paquets Debian du conteneur (apt full-upgrade).",
+        button("Mettre à jour", "tbtn", G_CALLBACK(on_linux_upgrade), NULL), NULL);
+    linux_more(linux_grp, TRUE);
+    row(linux_grp, "Supprimer Linux", "Efface le conteneur et ses applis. Vos fichiers personnels sont conservés.",
+        button("Supprimer", "tbtn", G_CALLBACK(on_linux_remove), NULL), NULL);
+  } else {
+    row(linux_grp, "Linux n'est pas installé", "Téléchargement d'environ 250 Mo, puis quelques minutes de préparation.",
+        button("Installer", "fbtn", G_CALLBACK(on_linux_install), NULL), NULL);
+    linux_more(linux_grp, FALSE);
+  }
+  gtk_widget_show_all(linux_grp);
+}
+
+static void refresh_linux(void) {
+  GSubprocess *sp = g_subprocess_new(G_SUBPROCESS_FLAGS_STDOUT_SILENCE | G_SUBPROCESS_FLAGS_STDERR_SILENCE, NULL,
+                                     "podman", "container", "exists", "linux", NULL);
+  if (sp) g_subprocess_wait_check_async(sp, NULL, linux_state_done, NULL);
 }
 
 static void build_linux(void) {
   GtkWidget *p = page_box("linux", "Linux");
   gtk_container_add(GTK_CONTAINER(p), desc("Un Debian complet dans un conteneur, comme sur ChromeOS : installez des "
                                             "applis avec apt sans toucher au système. Votre dossier personnel est partagé."));
-  GtkWidget *g = group(p, NULL);
-  if (linux_installed()) {
-    row(g, "Linux est installé", "Ouvrez le Terminal pour l'utiliser.", button("Ouvrir le Terminal", "tbtn", G_CALLBACK(on_linux_install), NULL), NULL);
-    row(g, "Supprimer Linux", "Efface le conteneur et ses applis. Vos fichiers personnels sont conservés.",
-        button("Supprimer", "tbtn", G_CALLBACK(do_linux_remove), NULL), NULL);
-  } else {
-    row(g, "Linux n'est pas installé", "Téléchargement d'environ 50 Mo, puis quelques minutes de préparation.",
-        button("Installer", "fbtn", G_CALLBACK(on_linux_install), NULL), NULL);
-  }
+  linux_grp = group(p, NULL);
+  row(linux_grp, "Vérification…", NULL, NULL, NULL);
   linux_msg = label("", "msg", 0);
   gtk_widget_set_no_show_all(linux_msg, TRUE);
   gtk_container_add(GTK_CONTAINER(p), linux_msg);
@@ -796,6 +1102,7 @@ static void build_updates(void) {
   g_free(ver); g_free(t);
   refresh_update(NULL);
   if (gtk_widget_get_sensitive(upd_btn) == FALSE && !upd_poll) upd_poll = g_timeout_add_seconds(2, refresh_update, NULL);
+  updates_more(p);
 }
 
 /* ------------------------------------------------------------------ */
@@ -865,7 +1172,10 @@ static void build_about(void) {
   GtkWidget *g2 = group(p, NULL);
   row(g2, "Logiciel libre", "LuminaOS est distribué sous licence GPL-3.0.",
       button("Code source", "tbtn", G_CALLBACK(on_github), NULL), NULL);
+  about_more(p);
 }
+
+#include "settings-more.c"
 
 /* ------------------------------------------------------------------ */
 /* Construction                                                        */
@@ -874,30 +1184,68 @@ static const struct { const char *id, *glyph, *title; void (*build)(void); } SEC
   {"reseau", "wifi", "Réseau", build_network},
   {"bluetooth", "bt", "Bluetooth", build_bluetooth},
   {"affichage", "sun", "Affichage", build_display},
+  {"ecrans", "monitor", "Écrans", build_screens},
   {"son", "vol", "Son", build_sound},
   {"clavier", "kbd", "Clavier et langue", build_keyboard},
+  {"souris", "mouse", "Souris et pavé tactile", build_mouse},
   {"compte", "lock", "Compte et verrouillage", build_account},
   {"linux", "term", "Linux", build_linux},
   {"android", "android", "Applis Android", build_android},
+  {"imprimantes", "print", "Imprimantes", build_printers},
+  {"heure", "clock", "Date et heure", build_datetime},
+  {"energie", "battery", "Énergie", build_power},
+  {"accessibilite", "access", "Accessibilité", build_access},
+  {"raccourcis", "kbd", "Raccourcis clavier", build_shortcuts},
   {"maj", "reboot", "Mises à jour", build_updates},
   {"stockage", "archive", "Stockage", build_storage},
   {"apropos", "info", "À propos", build_about},
 };
 
-static void on_nav(GtkListBox *lb, GtkListBoxRow *r, gpointer d) {
-  if (r) gtk_stack_set_visible_child_name(GTK_STACK(stack), g_object_get_data(G_OBJECT(r), "id"));
+/* Pages construites a la premiere visite : l'appli s'ouvre vite, meme sur
+   un vieux PC (certaines pages interrogent le systeme : fuseaux horaires,
+   imprimantes, ecrans...). */
+static void ensure_page(const char *id) {
+  if (gtk_stack_get_child_by_name(GTK_STACK(stack), id)) return;
+  for (guint i = 0; i < G_N_ELEMENTS(SECTIONS); i++)
+    if (!strcmp(SECTIONS[i].id, id)) {
+      SECTIONS[i].build();
+      gtk_widget_show_all(gtk_stack_get_child_by_name(GTK_STACK(stack), id));
+    }
 }
+
+static void on_nav(GtkListBox *lb, GtkListBoxRow *r, gpointer d) {
+  if (!r) return;
+  const char *id = g_object_get_data(G_OBJECT(r), "id");
+  gboolean fresh = !gtk_stack_get_child_by_name(GTK_STACK(stack), id);
+  ensure_page(id);
+  gtk_stack_set_visible_child_name(GTK_STACK(stack), id);
+  if (fresh && strcmp(id, "linux")) return;
+  if (!strcmp(id, "linux")) refresh_linux();
+  else if (!strcmp(id, "ecrans")) fill_screens();
+  else if (!strcmp(id, "imprimantes")) fill_printers();
+}
+
+/* Retour sur la fenetre (apres le Terminal, par exemple) : la page Linux
+   reflete le nouvel etat. */
+static gboolean on_focus_in(GtkWidget *w, GdkEvent *e, gpointer d) {
+  if (!g_strcmp0(gtk_stack_get_visible_child_name(GTK_STACK(stack)), "linux")) refresh_linux();
+  return FALSE;
+}
+
+/* Theme, accent ou fond d'ecran changes (ici ou ailleurs) */
+static void on_theme_ext(void) { if (wall_sub) update_wall_row(); }
 
 int main(int argc, char **argv) {
   g_set_prgname("lumina-settings");
   gtk_init(&argc, &argv);
-  lumina_ui_init(CSS, NULL);
+  lumina_ui_init(CSS, on_theme_ext);
 
   win = gtk_window_new(GTK_WINDOW_TOPLEVEL);
   add_class(win, "lumina-settings");
   gtk_window_set_title(GTK_WINDOW(win), "Réglages");
   gtk_window_set_default_size(GTK_WINDOW(win), 900, 620);
   g_signal_connect(win, "destroy", G_CALLBACK(gtk_main_quit), NULL);
+  g_signal_connect(win, "focus-in-event", G_CALLBACK(on_focus_in), NULL);
   GtkWidget *hb = gtk_header_bar_new();
   add_class(hb, "header");
   gtk_header_bar_set_show_close_button(GTK_HEADER_BAR(hb), TRUE);
@@ -925,7 +1273,6 @@ int main(int argc, char **argv) {
   const char *want = argc > 1 ? argv[1] : "reseau";
   GtkListBoxRow *sel = NULL;
   for (guint i = 0; i < G_N_ELEMENTS(SECTIONS); i++) {
-    SECTIONS[i].build();
     GtkWidget *r = gtk_list_box_row_new();
     GtkWidget *h = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 14);
     add_class(h, "item");

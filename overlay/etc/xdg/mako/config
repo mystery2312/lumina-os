@@ -21,3 +21,11 @@ text-color=#410002
 [mode=dark]
 background-color=#252b28f5
 text-color=#dee4e0
+
+# Ne pas deranger (reglages rapides) : rien ne s'affiche, tout va dans
+# l'historique ; les alertes critiques passent quand meme.
+[mode=do-not-disturb]
+invisible=1
+
+[mode=do-not-disturb urgency=critical]
+invisible=0

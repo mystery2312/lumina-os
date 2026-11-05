@@ -1,0 +1,15 @@
+[Unit]
+Description=Reinitialisation de LuminaOS (Powerwash) si demandee
+DefaultDependencies=no
+After=systemd-remount-fs.service systemd-udev-trigger.service lumina-grow.service
+Before=local-fs-pre.target shutdown.target
+Wants=local-fs-pre.target
+Conflicts=shutdown.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/sbin/lumina-powerwash
+
+[Install]
+WantedBy=local-fs.target

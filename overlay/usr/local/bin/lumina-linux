@@ -6,6 +6,10 @@
 #   lumina-linux            ouvre un terminal Linux (installe au besoin)
 #   lumina-linux --setup    installe le conteneur
 #   lumina-linux --remove   supprime le conteneur et ses applis
+#   lumina-linux --upgrade  met a jour les paquets du conteneur (Reglages)
+#   lumina-linux --backup   sauvegarde Linux dans Telechargements (.tar)
+#   lumina-linux --restore F  remplace Linux par la sauvegarde F
+#   LUMINA_LINUX_YES=1      installe sans poser la question (Reglages)
 #
 # Le dossier personnel est partage : les fichiers sont les memes des deux
 # cotes. Les applis graphiques installees avec apt apparaissent seules
@@ -51,16 +55,49 @@ install_hook() {
 }
 
 setup() {
+  # Reglages affiche "Installation en cours" tant que ce fichier existe.
+  MARK="${XDG_RUNTIME_DIR:-/tmp}/lumina-linux-setup"
+  touch "$MARK"; trap 'rm -f "$MARK"' EXIT INT TERM HUP
   echo "Installation de Linux (Debian) dans un conteneur."
   echo "Téléchargement d'environ 250 Mo, puis préparation : quelques minutes."
   distrobox create --yes --name "$NAME" --image "$IMAGE" --hostname "$NAME" \
     --additional-packages "sudo locales"
   install_hook
+  rm -f "$MARK"
   echo "Linux est prêt. Installez des applis avec : sudo apt install <paquet>"
 }
 
 case "${1:-}" in
   --setup)  exists || setup; install_hook ;;
+  --upgrade)
+    exists || { echo "Linux n'est pas installé."; exit 1; }
+    distrobox enter "$NAME" -- sudo sh -c 'apt-get update && apt-get -y full-upgrade' \
+      && echo "Linux est à jour." || echo "La mise à jour a échoué."
+    printf "Appuyez sur Entrée pour fermer. "; read -r _ || true
+    ;;
+  --backup)
+    exists || { echo "Linux n'est pas installé."; exit 1; }
+    D="$(xdg-user-dir DOWNLOAD 2>/dev/null || echo "$HOME/Téléchargements")"
+    F="$D/linux-sauvegarde-$(date +%Y-%m-%d).tar"
+    echo "Sauvegarde de Linux… (quelques minutes)"
+    podman stop "$NAME" >/dev/null 2>&1 || true
+    podman commit "$NAME" localhost/lumina-linux-sauvegarde >/dev/null \
+      && podman save -o "$F" localhost/lumina-linux-sauvegarde \
+      && podman rmi localhost/lumina-linux-sauvegarde >/dev/null 2>&1 \
+      && echo "Sauvegarde enregistrée : $F" || echo "La sauvegarde a échoué."
+    printf "Appuyez sur Entrée pour fermer. "; read -r _ || true
+    ;;
+  --restore)
+    F="${2:-}"; [ -r "$F" ] || { echo "Fichier introuvable."; exit 1; }
+    echo "Restauration de Linux depuis $F…"
+    IMG=$(podman load -q -i "$F" | sed -n 's/^Loaded image: //p' | head -1)
+    [ -n "$IMG" ] || { echo "Ce fichier n'est pas une sauvegarde Linux."; read -r _ || true; exit 1; }
+    exists && distrobox rm --force "$NAME" >/dev/null 2>&1
+    rm -f "$READY"
+    distrobox create --yes --name "$NAME" --image "$IMG" --hostname "$NAME" && install_hook \
+      && echo "Linux est restauré." || echo "La restauration a échoué."
+    printf "Appuyez sur Entrée pour fermer. "; read -r _ || true
+    ;;
   --remove)
     rm -f "$READY"
     for e in "$HOME"/.local/share/applications/linux-*.desktop; do [ -e "$e" ] && rm -f "$e"; done
@@ -68,9 +105,11 @@ case "${1:-}" in
     ;;
   *)
     if ! exists; then
-      printf "Linux n'est pas encore installé. L'installer maintenant ? [O/n] "
-      read -r r || r=n
-      case "$r" in [nN]*) exit 0;; esac
+      if [ "${LUMINA_LINUX_YES:-0}" != 1 ]; then
+        printf "Linux n'est pas encore installé. L'installer maintenant ? [O/n] "
+        read -r r || r=n
+        case "$r" in [nN]*) exit 0;; esac
+      fi
       setup
     fi
     install_hook

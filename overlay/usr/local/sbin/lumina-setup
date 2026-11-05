@@ -15,6 +15,8 @@ if ! id lumina >/dev/null 2>&1; then
 fi
 # Bluetooth pilotable depuis la session (politique D-Bus de bluez).
 getent group bluetooth >/dev/null && usermod -aG bluetooth lumina
+# Gestion des imprimantes depuis Reglages (lpadmin)
+getent group lpadmin >/dev/null && usermod -aG lpadmin lumina
 # Plages d'UID/GID pour les conteneurs sans privileges (Podman).
 grep -q '^lumina:' /etc/subuid || usermod --add-subuids 100000-165535 --add-subgids 100000-165535 lumina
 
@@ -51,6 +53,8 @@ systemctl enable lumina-mglru.service
 systemctl enable lumina-update.timer
 systemctl enable lumina-boot-ok.service
 systemctl enable lumina-grow.service
+systemctl enable lumina-powerwash.service
+systemctl enable cups.service cups-browsed.service avahi-daemon.service 2>/dev/null || true
 systemctl enable seatd.service
 # ifupdown arrive avec le variant 'important' et ferait doublon avec networkd.
 systemctl disable networking.service 2>/dev/null || true
@@ -82,5 +86,7 @@ rm -rf /usr/share/doc/* /usr/share/man/* /var/cache/apt/archives/*.deb
 # Le logo et les icones ajoutes par LuminaOS arrivent apres l'installation
 # des paquets : sans reconstruire le cache, GTK ne les verrait pas.
 gtk-update-icon-cache -q -f /usr/share/icons/hicolor 2>/dev/null || true
+# (glib-compile-schemas : copie privee de libglib, libglib2.0-bin absent)
+/usr/lib/x86_64-linux-gnu/glib-2.0/glib-compile-schemas /usr/share/glib-2.0/schemas || true
 
 echo "lumina-setup: termine"

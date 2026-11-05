@@ -1,0 +1,66 @@
+#!/bin/bash
+# Reglages systeme de LuminaOS demandes depuis la session (pkexec), et leur
+# application au demarrage. Tout est conserve sur la partition d'etat
+# (/var/lib/lumina/config) : une mise a jour remplace /etc.
+#
+#   lumina-system apply               au demarrage (lumina-account.service)
+#   lumina-system set-lid suspend|ignore|poweroff
+#                                     fermeture du capot
+#   lumina-system set-channel stable|beta
+#                                     canal des mises a jour
+#   lumina-system set-timezone Europe/Paris
+#                                     fuseau horaire (conserve aux mises a jour)
+#   lumina-system powerwash           efface TOUTES les donnees au prochain
+#                                     demarrage (comme le Powerwash de ChromeOS)
+set -euo pipefail
+export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+C=/var/lib/lumina/config
+mkdir -p "$C"; chmod 755 "$C"
+REPO=https://github.com/mystery2312/lumina-os/releases
+
+apply_lid() {
+  local v=suspend
+  [ -r "$C/lid" ] && v=$(cat "$C/lid")
+  mkdir -p /run/systemd/logind.conf.d
+  printf '[Login]\nHandleLidSwitch=%s\nHandleLidSwitchExternalPower=%s\n' "$v" "$v" \
+    > /run/systemd/logind.conf.d/50-lumina.conf
+  systemctl kill -s HUP systemd-logind 2>/dev/null || true
+}
+
+case "${1:-}" in
+  apply)
+    apply_lid
+    [ -s "$C/timezone" ] && timedatectl set-timezone "$(cat "$C/timezone")" 2>/dev/null || true
+    ;;
+  set-timezone)
+    [ -e "/usr/share/zoneinfo/${2:-}" ] || { echo "fuseau inconnu" >&2; exit 1; }
+    timedatectl set-timezone "$2"
+    printf '%s\n' "$2" > "$C/timezone"
+    ;;
+  set-lid)
+    case "${2:-}" in suspend|ignore|poweroff) ;; *) echo "valeur inconnue" >&2; exit 1 ;; esac
+    printf '%s\n' "$2" > "$C/lid"
+    apply_lid
+    ;;
+  set-channel)
+    case "${2:-}" in
+      stable) rm -f "$C/update.conf" ;;
+      # Bêta : la Release etiquetee "beta", republiee a chaque version d'essai
+      beta) printf 'UPDATE_URL="%s/download/beta/manifest.txt"\nCHANNEL=beta\n' "$REPO" > "$C/update.conf" ;;
+      *) echo "canal inconnu" >&2; exit 1 ;;
+    esac
+    ;;
+  powerwash)
+    # Drapeau sur l'ESP : la partition d'etat elle-meme va etre effacee.
+    ROOTSRC=$(findmnt -no SOURCE /)
+    DISK=/dev/$(lsblk -no PKNAME "$ROOTSRC" | head -1 | tr -d ' ')
+    ESP=$(lsblk -lnpo NAME,PARTLABEL "$DISK" | awk '$2 == "ESP" { print $1 }')
+    M=$(mktemp -d)
+    mount "$ESP" "$M"
+    : > "$M/lumina-powerwash"
+    sync; umount "$M"; rmdir "$M"
+    systemctl reboot
+    ;;
+  *)
+    echo "usage : lumina-system apply|set-lid|set-channel|set-timezone|powerwash" >&2; exit 1 ;;
+esac

@@ -1,14 +1,24 @@
 # Palette Material 3 de LuminaOS (claire)
+# Barre de titre des fenetres dessinees par labwc (Terminal, applis Linux) :
+# memes mesures que l'en-tete des applis LuminaOS (Fichiers, Reglages) -
+# 58 px de haut, titre a gauche, boutons ronds de 40 px, fond "surface".
+# Les boutons sont les SVG de ce dossier.
 border.width: 0
-padding.height: 6
-window.active.title.bg.color: #e3eae5
-window.inactive.title.bg.color: #e9efeb
+window.titlebar.padding.width: 10
+window.titlebar.padding.height: 9
+window.button.width: 40
+window.button.height: 40
+window.button.spacing: 0
+window.button.hover.bg.corner-radius: 20
+window.label.text.justify: left
+window.active.title.bg.color: #f5fbf7
+window.inactive.title.bg.color: #f5fbf7
 window.active.label.text.color: #171d1a
 window.inactive.label.text.color: #404945
 window.active.button.unpressed.image.color: #404945
 window.inactive.button.unpressed.image.color: #707975
-window.active.border.color: #e3eae5
-window.inactive.border.color: #e9efeb
+window.active.border.color: #f5fbf7
+window.inactive.border.color: #f5fbf7
 menu.items.bg.color: #eff5f1
 menu.items.text.color: #171d1a
 menu.items.active.bg.color: #a1f2d7
