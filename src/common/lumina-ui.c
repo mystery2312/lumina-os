@@ -27,6 +27,7 @@ static Palette GEN_LIGHT, GEN_DARK;
 static gboolean use_gen;
 const Palette *P = &LIGHT;
 gboolean dark = FALSE;
+gboolean lumina_bar_light = FALSE;
 
 
 
@@ -181,6 +182,7 @@ const char *role_color(int r) {
     case R_ON_SEC_C: return P->on_sec_c;
     case R_ON_TER_C: return P->on_ter_c;
     case R_TER:      return P->ter;
+    case R_BAR:      return lumina_bar_light ? "#ffffff" : P->on;
     default:         return P->pri;
   }
 }
@@ -234,6 +236,18 @@ static const Glyph GLYPHS[] = {
   {"back",    "<path d='M19 12H5m6-6-6 6 6 6'/>"},
   {"fwd",     "<path d='M5 12h14m-6-6 6 6-6 6'/>"},
   {"up",      "<path d='M12 19V5m-6 6 6-6 6 6'/>"},
+  {"down",    "<path d='M12 5v14m-6-6 6 6 6-6'/>"},
+  {"play",    "<path d='M8 5.5v13l10.5-6.5z' fill='currentColor' stroke='none'/>"},
+  {"pause",   "<path d='M7.5 5h3v14h-3zM13.5 5h3v14h-3z' fill='currentColor' stroke='none'/>"},
+  {"prev",    "<path d='M6 5v14M19 5.5v13L9 12z'/>"},
+  {"next",    "<path d='M18 5v14M5 5.5v13L15 12z'/>"},
+  {"rotate",  "<path d='M20 11a8 8 0 1 0-2.3 5.7M20 5v6h-6'/>"},
+  {"zoomout", "<circle cx='10.5' cy='10.5' r='6.5'/><path d='m15.4 15.4 4.1 4.1M8 10.5h5'/>"},
+  {"fullscreen","<path d='M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5'/>"},
+  {"camera",  "<path d='M3 8.5A2.5 2.5 0 0 1 5.5 6h2l1.5-2h6l1.5 2h2A2.5 2.5 0 0 1 21 8.5v9a2.5 2.5 0 0 1-2.5 2.5h-13A2.5 2.5 0 0 1 3 17.5z'/><circle cx='12' cy='12.5' r='3.8'/>"},
+  {"text",    "<path d='M6 2.5h8l4.5 4.5v14.5H6z'/><path d='M14 2.5V7h4.5M9 11h6M9 14.5h6M9 18h4'/>"},
+  {"gallery", "<rect x='3' y='4' width='18' height='16' rx='2.5'/><circle cx='8.8' cy='9.5' r='1.9'/><path d='m3.5 18 5-5 4.5 4.5 3-2.5 4.5 4'/>"},
+  {"wallpaper","<rect x='3' y='4' width='18' height='16' rx='2.5'/><path d='m3.5 17 5.5-5.5 4 4 2.5-2.5 5 5'/><circle cx='16' cy='8.5' r='1.5'/>"},
   {"more",    "<g fill='currentColor' stroke='none'><circle cx='12' cy='5.5' r='1.7'/><circle cx='12' cy='12' r='1.7'/><circle cx='12' cy='18.5' r='1.7'/></g>"},
   {"plus",    "<path d='M12 5v14M5 12h14'/>"},
   {"close",   "<path d='m6 6 12 12M18 6 6 18'/>"},
@@ -380,6 +394,9 @@ static void on_theme_file(GFileMonitor *m, GFile *f, GFile *o, GFileMonitorEvent
 }
 
 void lumina_ui_init(const char *css_text, void (*on_theme)(void)) {
+  /* Ouvrir / Enregistrer : selecteur de LuminaOS (Fichiers, via le portail
+     du shell) plutot que la boite de dialogue GTK */
+  g_setenv("GTK_USE_PORTAL", "1", FALSE);
   icons = g_ptr_array_new();
   app_css = g_strdup(css_text);
   theme_cb = on_theme;
@@ -398,6 +415,11 @@ void lumina_ui_init(const char *css_text, void (*on_theme)(void)) {
   if (theme_mon) g_signal_connect(theme_mon, "changed", G_CALLBACK(on_theme_file), NULL);
   g_object_unref(f); g_free(p); g_free(dir);
 }
+
+/* Appli toujours sombre (Galerie), sans toucher au reglage du systeme */
+void lumina_ui_set_dark_local(gboolean on) { apply_theme(on); }
+
+void lumina_ui_rerender(void) { for (guint i = 0; i < icons->len; i++) icon_render(icons->pdata[i]); }
 
 void lumina_ui_set_accent(const char *v) {
   char *p = conf_file("accent");

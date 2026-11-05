@@ -1,0 +1,37 @@
+#!/bin/sh
+# Desinstalle une appli depuis le lanceur (clic droit > Desinstaller).
+#   lumina-uninstall ID.desktop
+#   - appli web installee depuis Chromium (PWA) : raccourci et icones retires
+#   - appli Linux (conteneur) : paquet Debian retire dans un Terminal
+#   - appli Android : retiree de Waydroid
+# Code de sortie 2 : appli du systeme, qu'on ne desinstalle pas.
+ID="${1:-}"
+APPS="$HOME/.local/share/applications"
+F="$APPS/$ID"
+case "$ID" in
+  linux-*.desktop)
+    # Fichier d'origine dans le conteneur, puis son paquet
+    N="${ID#linux-}"
+    exec foot -a lumina-terminal -T "Désinstallation" sh -c '
+      P=$(distrobox enter linux -- dpkg -S "/usr/share/applications/$1" 2>/dev/null | head -1 | cut -d: -f1)
+      if [ -z "$P" ]; then echo "Paquet introuvable pour $1."; else
+        echo "Désinstallation de $P…"; distrobox enter linux -- sudo apt-get -y remove "$P"; fi
+      printf "Appuyez sur Entrée pour fermer. "; read -r _' sh "$N"
+    ;;
+  waydroid.*.desktop)
+    P="${ID#waydroid.}"; P="${P%.desktop}"
+    waydroid app remove "$P" >/dev/null 2>&1
+    rm -f "$F"
+    ;;
+  chrome-*.desktop|chromium-*.desktop)
+    [ -f "$F" ] || exit 1
+    # Icones de la PWA (meme nom que le raccourci), puis le raccourci
+    base="${ID%.desktop}"
+    find "$HOME/.local/share/icons" -name "$base.png" -delete 2>/dev/null
+    rm -f "$F"
+    ;;
+  *)
+    exit 2 ;;
+esac
+notify-send -a "LuminaOS" "Appli désinstallée" 2>/dev/null
+exit 0

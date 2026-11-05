@@ -52,9 +52,26 @@ static const char *BASE_CSS =
   ".bar { color: @on; font-size: 12px; font-weight: 500; padding: 0 4px; transition: background-color 180ms; }\n"
   ".bar.solid { background: @bar_solid; }\n"
   ".bar .date { color: @on_var; font-weight: 400; }\n"
+  ".bar.light:not(.solid) { color: #ffffff; text-shadow: 0 1px 2px alpha(black, 0.5); }\n"
+  ".bar.light:not(.solid) .date { color: alpha(white, 0.85); }\n"
   ".launch { background: transparent; color: @on; border-radius: 11px; padding: 1px 9px; min-height: 0; }\n"
   ".launch:hover { background: alpha(@on, 0.10); }\n"
   ".launch.open { background: @pri_c; }\n"
+  ".clockbtn { background: transparent; color: inherit; border-radius: 11px; padding: 1px 8px; min-height: 0; }\n"
+  ".clockbtn:hover { background: alpha(@on, 0.10); }\n"
+  ".bar.light:not(.solid) .clockbtn:hover { background: alpha(white, 0.16); }\n"
+  "calendar { background: transparent; color: @on; border: none; padding: 4px; font-size: 13px; }\n"
+  "calendar.header { background: transparent; border: none; }\n"
+  "calendar.button { color: @on_var; background: transparent; }\n"
+  "calendar:selected { background: @pri; color: @on_pri; border-radius: 16px; }\n"
+  "calendar.highlight { color: @pri; font-weight: 600; }\n"
+  "calendar:indeterminate { color: alpha(@on, 0.35); }\n"
+  ".caltitle { font-size: 15px; font-weight: 500; }\n"
+  ".media { background: @c_high; border-radius: 20px; padding: 10px 12px 10px 16px; }\n"
+  ".media .mtitle { font-size: 13px; font-weight: 500; }\n"
+  ".media .martist { color: @on_var; font-size: 12px; }\n"
+  ".mbtn { background: transparent; border-radius: 18px; min-width: 36px; min-height: 36px; padding: 0; }\n"
+  ".mbtn:hover { background: alpha(@on, 0.08); }\n"
   ".tray { color: @on; background: transparent; border-radius: 11px; padding: 1px 10px; min-height: 0; }\n"
   ".tray:hover, .tray.open { background: alpha(@on, 0.10); }\n"
   /* Etagere pleine largeur facon ChromeOS : applis epinglees et ouvertes,
@@ -117,9 +134,15 @@ static const char *BASE_CSS =
   ".pwr { background: @c_high; color: @on; border-radius: 20px; padding: 9px 14px; }\n"
   ".pwr:hover { background: @c_top; }\n"
   /* Vue d'ensemble, presse-papiers, emojis, notifications, lanceur */
-  ".overview { background: alpha(@surface, 0.94); padding: 48px 64px 28px 64px; }\n"
-  ".desk { background: @c_high; color: @on; border-radius: 16px; padding: 10px 22px; font-weight: 500; }\n"
-  ".desk:hover { background: @pri_c; color: @on_pri_c; }\n"
+  ".overview { padding: 36px 48px 28px 48px; }\n"
+  ".desks { background: alpha(@surface, 0.55); border-radius: 22px; padding: 10px 14px; }\n"
+  ".deskbtn { background: transparent; border-radius: 14px; padding: 4px; color: @on; }\n"
+  ".deskbtn .deskthumb { border-radius: 10px; }\n"
+  ".deskbtn:hover { background: alpha(@on, 0.08); }\n"
+  ".deskbtn.current { box-shadow: inset 0 0 0 3px @pri; }\n"
+  ".deskname { font-size: 12.5px; font-weight: 500; }\n"
+  ".deskadd { background: @pri_c; border-radius: 24px; min-width: 48px; min-height: 48px; padding: 0; margin: 25px 6px 0 6px; }\n"
+  ".deskadd:hover { background: @pri; }\n"
   ".ovcard { background: @c_low; border-radius: 20px; min-width: 260px;\n"
   "          box-shadow: 0 2px 10px alpha(black, 0.16); }\n"
   ".ovcard.current { box-shadow: 0 0 0 3px @pri, 0 2px 10px alpha(black, 0.16); }\n"
@@ -129,7 +152,7 @@ static const char *BASE_CSS =
   ".ovclose:hover { background: alpha(@on, 0.10); }\n"
   ".ovbody { background: @c_high; border-radius: 0 0 20px 20px; min-height: 150px; }\n"
   ".ovbody:hover { background: @c_top; }\n"
-  ".ovempty { color: @on_var; font-size: 15px; }\n"
+  ".ovempty { color: #ffffff; font-size: 15px; text-shadow: 0 1px 3px alpha(black, 0.5); }\n"
   ".ovhint { color: @on_var; font-size: 12px; }\n"
   ".ptitle { font-size: 15px; font-weight: 500; }\n"
   ".clipitem { background: @c_high; color: @on; border-radius: 12px; padding: 10px 14px; }\n"
@@ -139,7 +162,8 @@ static const char *BASE_CSS =
   ".emoji:hover { background: @c_high; }\n"
   ".notifs { background: @c_high; border-radius: 20px; padding: 8px 10px 10px 14px; }\n"
   ".notifs .muted { color: @on_var; font-size: 12.5px; }\n"
-  ".notif { background: @c_low; border-radius: 14px; padding: 8px 12px; }\n"
+  ".notif { background: @c_low; color: @on; border-radius: 14px; padding: 8px 12px; }\n"
+  ".notif:hover { background: @c; }\n"
   ".notif .napp { color: @on_var; font-size: 11px; }\n"
   ".notif .nsum { font-size: 13px; font-weight: 500; }\n"
   ".notif .nbody { color: @on_var; font-size: 12px; }\n"
@@ -173,6 +197,10 @@ static const char *MON_L[] = {"", "janvier", "février", "mars", "avril", "mai",
 static GtkWidget *drawer, *qs, *scrim, *bar_win, *shelf_win;
 /* Un fond d'ecran par ecran branche (fenetres layer-shell) */
 static GPtrArray *walls;
+static GtkWidget *bar_box, *qs_scroll;
+static void fit_qs(void);
+static gboolean wall_light, bar_solid_now;   /* photo sombre en haut ; barre opaque */
+static void update_bar_light(void);
 /* lumina-extras.c */
 static void extras_close(void);
 static void extras_bar(GtkWidget *h);
@@ -184,6 +212,7 @@ static void extras_search_changed(const char *q);
 static void extras_drawer(GtkWidget *v);
 static void extras_shelf(GtkWidget *box);
 static void extras_shelf_button(GtkWidget *b, const char *key, gboolean has_app);
+static void register_filechooser(GDBusConnection *c);
 static GtkWidget *clock_l, *date_l, *tray_btn, *batt_l, *launch_btn;
 static Icon *tray_net_ic, *tray_batt_ic;
 static GtkWidget *search_entry, *flow, *flow_empty, *flow_scroll;
@@ -243,6 +272,30 @@ static void load_wallpaper(void) {
   g_free(path);
 }
 
+/* Barre transparente sur une photo sombre : blanc ; opaque : couleurs du theme */
+static void update_bar_light(void) {
+  gboolean light = wall_light && !bar_solid_now;
+  if (bar_box) set_class(bar_box, "light", light);
+  if (light != lumina_bar_light) { lumina_bar_light = light; lumina_ui_rerender(); }
+}
+
+/* Photo sombre derriere la barre d'etat (bande du haut) : heure et icones
+   en blanc, comme sur ChromeOS. Pas de voile sur la photo. */
+static gboolean wall_top_dark(void) {
+  if (!wall_pb) return FALSE;
+  int w = gdk_pixbuf_get_width(wall_pb), h = gdk_pixbuf_get_height(wall_pb);
+  int rs = gdk_pixbuf_get_rowstride(wall_pb), nc = gdk_pixbuf_get_n_channels(wall_pb);
+  const guchar *px = gdk_pixbuf_read_pixels(wall_pb);
+  int rows = MAX(1, h / 25);
+  double sum = 0; long n = 0;
+  for (int y = 0; y < rows; y++)
+    for (int x = 0; x < w; x += 4) {
+      const guchar *q = px + y * rs + x * nc;
+      sum += 0.2126 * q[0] + 0.7152 * q[1] + 0.0722 * q[2]; n++;
+    }
+  return n && sum / n < 140;
+}
+
 static gboolean draw_wall(GtkWidget *w, cairo_t *cr, gpointer d) {
   double W = gtk_widget_get_allocated_width(w), H = gtk_widget_get_allocated_height(w), r, g, b;
   if (wall_pb) {
@@ -256,14 +309,6 @@ static gboolean draw_wall(GtkWidget *w, cairo_t *cr, gpointer d) {
     cairo_pattern_set_filter(cairo_get_source(cr), CAIRO_FILTER_GOOD);
     cairo_paint(cr);
     cairo_restore(cr);
-    /* Voile en haut : l'heure et les icones de la barre restent lisibles
-       sur n'importe quelle photo. */
-    hex_rgb(P->surface, &r, &g, &b);
-    cairo_pattern_t *v = cairo_pattern_create_linear(0, 0, 0, 56);
-    cairo_pattern_add_color_stop_rgba(v, 0, r, g, b, 0.55);
-    cairo_pattern_add_color_stop_rgba(v, 1, r, g, b, 0);
-    cairo_set_source(cr, v); cairo_rectangle(cr, 0, 0, W, 56); cairo_fill(cr);
-    cairo_pattern_destroy(v);
     return FALSE;
   }
   hex_rgb(P->wall_c, &r, &g, &b);
@@ -321,6 +366,7 @@ static void close_panels(void) {
 }
 
 static void open_panel(GtkWidget *p) {
+  if (p == qs) fit_qs();
   close_panels();
   gtk_widget_show(scrim);          /* mappe en premier : reste dessous */
   gtk_widget_show(p);
@@ -691,8 +737,8 @@ static gboolean tick(gpointer d) {
   g_free(t); g_free(ds); g_free(dl); g_date_time_unref(now);
 
   /* Icone reseau : Wi-Fi s'il y a une carte, sinon cable. */
-  if (wifi_dev) icon_set(tray_net_ic, net_wifi_up(wifi_dev) ? "wifi" : "wifi-off", R_ON);
-  else icon_set(tray_net_ic, net_wired_up(wifi_dev) ? "wired" : "wifi-off", R_ON);
+  if (wifi_dev) icon_set(tray_net_ic, net_wifi_up(wifi_dev) ? "wifi" : "wifi-off", R_BAR);
+  else icon_set(tray_net_ic, net_wired_up(wifi_dev) ? "wired" : "wifi-off", R_BAR);
 
   gboolean ch = FALSE;
   int pct = battery(&ch);
@@ -700,7 +746,7 @@ static gboolean tick(gpointer d) {
   gtk_widget_set_visible(batt_l, pct >= 0);
   if (pct >= 0) {
     char *body = battery_svg(pct), *g = g_strconcat("svg:", body, NULL);
-    icon_set(tray_batt_ic, g, R_ON);
+    icon_set(tray_batt_ic, g, R_BAR);
     char *s = g_strdup_printf(ch ? "%d %% ⚡" : "%d %%", pct);
     gtk_label_set_text(GTK_LABEL(batt_l), s);
     g_free(body); g_free(g); g_free(s);
@@ -855,6 +901,7 @@ static GVariant *portal_value(const char *ns, const char *key) {
   } else if (!strcmp(ns, "org.gnome.desktop.interface")) {
     if (!strcmp(key, "color-scheme")) return g_variant_new_string(dark ? "prefer-dark" : "default");
     if (!strcmp(key, "font-name")) return g_variant_new_string("Roboto 10");
+    if (!strcmp(key, "gtk-theme")) return g_variant_new_string("Lumina");
     /* Accessibilite : texte plus grand, grand curseur */
     if (!strcmp(key, "text-scaling-factor")) {
       char *p = g_build_filename(g_get_user_config_dir(), "lumina", "bigtext", NULL);
@@ -876,6 +923,7 @@ static const char *PORTAL_KEYS[][2] = {
   {"org.gnome.desktop.wm.preferences", "button-layout"},
   {"org.gnome.desktop.interface", "color-scheme"}, {"org.gnome.desktop.interface", "font-name"},
   {"org.gnome.desktop.interface", "text-scaling-factor"}, {"org.gnome.desktop.interface", "cursor-size"},
+  {"org.gnome.desktop.interface", "gtk-theme"},
 };
 
 static void portal_call(GDBusConnection *c, const char *sender, const char *path, const char *iface,
@@ -919,6 +967,7 @@ static void on_portal_bus(GDBusConnection *c, const char *name, gpointer d) {
                                     &portal_vtable, NULL, NULL, NULL);
   g_dbus_node_info_unref(info);
   portal_bus = c;
+  register_filechooser(c);
 }
 
 static void init_portal(void) {
@@ -937,6 +986,8 @@ static void refresh_wallpaper(void) {
   if (wp) { GStatBuf st; if (g_stat(wp, &st) == 0) mt = (gint64)st.st_mtime * 1000000 + st.st_size; }
   if (mt != wall_mtime) { wall_mtime = mt; load_wallpaper(); }
   g_free(wp);
+  wall_light = wall_top_dark();
+  update_bar_light();
 }
 
 static void on_theme_changed(void) {
@@ -1127,6 +1178,18 @@ static void refresh_qs(void) {
 }
 
 static void on_power(GtkButton *b, gpointer d) {
+  if (!strcmp(d, "lock")) {
+    close_panels();
+    /* Sans mot de passe, lumina-lock ne fait rien : on le dit */
+    char *a = read_file("/var/lib/lumina/config/account.conf");
+    gboolean pw = a && strstr(a, "HAS_PASSWORD=1");
+    g_free(a);
+    const char *argv[] = {"lumina-lock", NULL};
+    const char *nv[] = {"notify-send", "-a", "LuminaOS", "Aucun mot de passe",
+                        "Définissez un mot de passe ou un code PIN dans Réglages › Compte pour verrouiller l'écran.", NULL};
+    spawn_async(pw ? argv : nv);
+    return;
+  }
   const char *argv[] = {"systemctl", d, NULL};
   spawn_async(argv);
 }
@@ -1183,6 +1246,27 @@ static GdkMonitor *main_monitor(void) {
   return gdk_display_get_monitor(gdk_display_get_default(), 0);
 }
 
+/* Clic droit sur le bureau : comme ChromeOS, acces au fond d'ecran */
+static void on_wall_menu(GtkMenuItem *m, gpointer d) {
+  const char *argv[] = {"lumina-settings", "affichage", NULL};
+  spawn_async(argv);
+}
+static void menu_done(GtkMenuShell *m, gpointer d);
+static gboolean on_wall_press(GtkWidget *w, GdkEventButton *e, gpointer d) {
+  if (e->type == GDK_BUTTON_PRESS && e->button == GDK_BUTTON_SECONDARY) {
+    close_panels();
+    GtkWidget *menu = gtk_menu_new();
+    GtkWidget *mi = gtk_menu_item_new_with_label("Fond d'écran et style…");
+    g_signal_connect(mi, "activate", G_CALLBACK(on_wall_menu), NULL);
+    gtk_menu_shell_append(GTK_MENU_SHELL(menu), mi);
+    gtk_widget_show_all(menu);
+    g_signal_connect(menu, "deactivate", G_CALLBACK(menu_done), NULL);
+    gtk_menu_popup_at_pointer(GTK_MENU(menu), (GdkEvent *)e);
+    return TRUE;
+  }
+  return on_scrim_press(w, (GdkEvent *)e, d);
+}
+
 static void build_wallpapers(void) {
   if (!walls) walls = g_ptr_array_new_with_free_func((GDestroyNotify)gtk_widget_destroy);
   g_ptr_array_set_size(walls, 0);
@@ -1196,7 +1280,7 @@ static void build_wallpapers(void) {
     GtkWidget *area = gtk_drawing_area_new();
     gtk_widget_add_events(area, GDK_BUTTON_PRESS_MASK);
     g_signal_connect(area, "draw", G_CALLBACK(draw_wall), NULL);
-    g_signal_connect(area, "button-press-event", G_CALLBACK(on_scrim_press), NULL);
+    g_signal_connect(area, "button-press-event", G_CALLBACK(on_wall_press), NULL);
     gtk_container_add(GTK_CONTAINER(w), area);
     gtk_widget_show_all(w);
     g_ptr_array_add(walls, w);
@@ -1228,11 +1312,12 @@ static void on_monitors_changed(GdkDisplay *dpy, GdkMonitor *mon, gpointer d) {
 }
 
 static void on_tray_clicked(GtkButton *b, gpointer d) { toggle_panel(qs); }
+static void calendar_toggle(void);
+static void on_clock_clicked(GtkButton *b, gpointer d) { calendar_toggle(); }
 
 static void on_launch_clicked(GtkButton *b, gpointer d) { toggle_panel(drawer); }
 
 /* Barre d'etat fine : lanceur et heure a gauche, reglages rapides a droite. */
-static GtkWidget *bar_box;
 
 static void build_bar(void) {
   GtkWidget *w = bar_win = layer_window(GTK_LAYER_SHELL_LAYER_TOP, "lumina-bar");
@@ -1247,26 +1332,35 @@ static void build_bar(void) {
   add_class(launch_btn, "launch");
   gtk_widget_set_valign(launch_btn, GTK_ALIGN_CENTER);
   gtk_widget_set_tooltip_text(launch_btn, "Applications (touche Windows)");
-  gtk_container_add(GTK_CONTAINER(launch_btn), icon_new("grid", R_ON, 15)->img);
+  gtk_container_add(GTK_CONTAINER(launch_btn), icon_new("grid", R_BAR, 15)->img);
   g_signal_connect(launch_btn, "clicked", G_CALLBACK(on_launch_clicked), NULL);
   gtk_container_add(GTK_CONTAINER(h), launch_btn);
-  extras_bar(h);
 
+  /* Heure et date : un clic ouvre le calendrier (comme ChromeOS) */
   clock_l = label("", NULL, 0); date_l = label("", "date", 0);
-  gtk_container_add(GTK_CONTAINER(h), clock_l);
-  gtk_container_add(GTK_CONTAINER(h), date_l);
+  GtkWidget *cb = gtk_button_new();
+  add_class(cb, "clockbtn");
+  gtk_widget_set_valign(cb, GTK_ALIGN_CENTER);
+  gtk_widget_set_tooltip_text(cb, "Calendrier");
+  GtkWidget *ch = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+  gtk_container_add(GTK_CONTAINER(ch), clock_l);
+  gtk_container_add(GTK_CONTAINER(ch), date_l);
+  gtk_container_add(GTK_CONTAINER(cb), ch);
+  g_signal_connect(cb, "clicked", G_CALLBACK(on_clock_clicked), NULL);
+  gtk_container_add(GTK_CONTAINER(h), cb);
   GtkWidget *sp = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
   gtk_widget_set_hexpand(sp, TRUE);
   gtk_container_add(GTK_CONTAINER(h), sp);
 
   extras_bar_end(h);
+  extras_bar(h);      /* vue d'ensemble / bureaux, a cote des reglages rapides */
   tray_btn = gtk_button_new();
   add_class(tray_btn, "tray");
   gtk_widget_set_valign(tray_btn, GTK_ALIGN_CENTER);
   gtk_widget_set_tooltip_text(tray_btn, "Réglages rapides (Windows + A)");
   GtkWidget *t = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 7);
-  tray_net_ic = icon_new("wifi", R_ON, 14);
-  tray_batt_ic = icon_new("svg:", R_ON, 14);
+  tray_net_ic = icon_new("wifi", R_BAR, 14);
+  tray_batt_ic = icon_new("svg:", R_BAR, 14);
   batt_l = label("", NULL, 0);
   gtk_container_add(GTK_CONTAINER(t), tray_net_ic->img);
   gtk_container_add(GTK_CONTAINER(t), tray_batt_ic->img);
@@ -1277,6 +1371,7 @@ static void build_bar(void) {
 
   gtk_container_add(GTK_CONTAINER(w), h);
   gtk_widget_show_all(w);
+  update_bar_light();
 }
 
 /* ------------------------------------------------------------------ */
@@ -1614,6 +1709,11 @@ static void on_menu_new(GtkMenuItem *m, gpointer key) {
   close_panels();
   if (a) { launch(G_APP_INFO(a)); g_object_unref(a); }
 }
+static void on_menu_uninstall(GtkMenuItem *m, gpointer key) {
+  close_panels();
+  const char *argv[] = {"lumina-uninstall", key, NULL};
+  spawn_async(argv);
+}
 static ShelfItem *shelf_find(const char *key);
 static void on_menu_close(GtkMenuItem *m, gpointer key) {
   ShelfItem *it = shelf_find(key);
@@ -1641,6 +1741,13 @@ static gboolean on_app_menu(GtkWidget *w, GdkEventButton *e, gpointer key) {
     mi = gtk_menu_item_new_with_label(pinned ? "Retirer de l'étagère" : "Épingler à l'étagère");
     g_signal_connect(mi, "activate", G_CALLBACK(pinned ? on_menu_unpin : on_menu_pin), k);
     gtk_menu_shell_append(GTK_MENU_SHELL(menu), mi);
+    /* Applis web installees, applis Linux et Android : desinstallables */
+    if (g_str_has_prefix(k, "chrome-") || g_str_has_prefix(k, "chromium-") || g_str_has_prefix(k, "linux-") ||
+        g_str_has_prefix(k, "waydroid.")) {
+      mi = gtk_menu_item_new_with_label("Désinstaller");
+      g_signal_connect(mi, "activate", G_CALLBACK(on_menu_uninstall), k);
+      gtk_menu_shell_append(GTK_MENU_SHELL(menu), mi);
+    }
     g_object_unref(a);
   }
   if (it && it->wins) {
@@ -1692,6 +1799,7 @@ static gboolean refresh_shelf(gpointer d) {
 
   /* Barre d'etat opaque des qu'une fenetre est agrandie. */
   set_class(bar_box, "solid", any_max);
+  if (any_max != bar_solid_now) { bar_solid_now = any_max; update_bar_light(); }
 
   for (guint i = 0; i < shelf_items->len; i++) {
     ShelfItem *it = shelf_items->pdata[i];
@@ -1917,8 +2025,8 @@ static void build_qs(void) {
 
   GtkWidget *pw = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
   gtk_box_set_homogeneous(GTK_BOX(pw), TRUE);
-  const char *acts[][3] = {{"reboot", "Redémarrer", "reboot"}, {"power", "Éteindre", "poweroff"}};
-  for (int i = 0; i < 2; i++) {
+  const char *acts[][3] = {{"lock", "Verrouiller", "lock"}, {"reboot", "Redémarrer", "reboot"}, {"power", "Éteindre", "poweroff"}};
+  for (int i = 0; i < 3; i++) {
     GtkWidget *b = gtk_button_new();
     add_class(b, "pwr");
     GtkWidget *h = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
@@ -1931,8 +2039,27 @@ static void build_qs(void) {
   }
   gtk_container_add(GTK_CONTAINER(v), pw);
 
-  gtk_container_add(GTK_CONTAINER(qs), v);
-  gtk_widget_show_all(v);
+  /* Petits ecrans (1366 x 768...) : le volet ne depasse jamais l'ecran,
+     son contenu defile. Hauteur maxi recalculee a chaque ouverture. */
+  qs_scroll = gtk_scrolled_window_new(NULL, NULL);
+  gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(qs_scroll), GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
+  gtk_scrolled_window_set_propagate_natural_height(GTK_SCROLLED_WINDOW(qs_scroll), TRUE);
+  gtk_scrolled_window_set_propagate_natural_width(GTK_SCROLLED_WINDOW(qs_scroll), TRUE);
+  gtk_scrolled_window_set_overlay_scrolling(GTK_SCROLLED_WINDOW(qs_scroll), TRUE);
+  gtk_container_add(GTK_CONTAINER(qs_scroll), v);
+  gtk_container_add(GTK_CONTAINER(qs), qs_scroll);
+  gtk_widget_show_all(qs_scroll);
+}
+
+static void fit_qs(void) {
+  if (!qs_scroll) return;
+  /* Sous Wayland, GDK ne connait pas la zone de travail : on retire
+     nous-memes la barre d'etat et l'etagere. */
+  GdkRectangle g;
+  gdk_monitor_get_geometry(main_monitor(), &g);
+  int bar = bar_win ? gtk_widget_get_allocated_height(bar_win) : 28;
+  int shelf = shelf_win ? gtk_widget_get_allocated_height(shelf_win) : 56;
+  gtk_scrolled_window_set_max_content_height(GTK_SCROLLED_WINDOW(qs_scroll), MAX(300, g.height - bar - shelf - 4));
 }
 
 #include "lumina-extras.c"

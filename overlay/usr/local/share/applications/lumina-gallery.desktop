@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Galerie
+Comment=Photos, vidéos et musique
+Exec=lumina-gallery %f
+MimeType=image/png;image/jpeg;image/gif;image/webp;image/bmp;image/tiff;image/svg+xml;image/x-icon;image/avif;image/heif;video/mp4;video/webm;video/x-matroska;video/quicktime;video/x-msvideo;video/ogg;video/mpeg;audio/mpeg;audio/ogg;audio/flac;audio/x-wav;audio/wav;audio/mp4;audio/aac;audio/webm;audio/x-vorbis+ogg;audio/opus;
+StartupWMClass=lumina-gallery
+X-Lumina-Glyph=gallery
+X-Lumina-Color=#e37400
+X-Lumina-Kind=Système

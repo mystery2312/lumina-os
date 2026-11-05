@@ -18,6 +18,9 @@ export XDG_CURRENT_DESKTOP=lumina:wlroots
 export XKB_DEFAULT_LAYOUT="${LUMINA_KEYMAP:-fr}"
 export XKB_DEFAULT_VARIANT="${LUMINA_KEYMAP_VARIANT:-}"
 export GDK_BACKEND=wayland
+# Boites "Ouvrir / Enregistrer" des applis GTK : le selecteur LuminaOS
+# (appli Fichiers, via le portail du shell), comme dans Chromium.
+export GTK_USE_PORTAL=1
 # Langue de l'interface. Chromium la lit dans LANGUAGE (il ignore --lang) ;
 # les applis GTK dans LANG, via gettext, qui ignore LANGUAGE si LANG=C.
 case "${LUMINA_LANG:-fr}" in

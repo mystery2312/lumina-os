@@ -1,19 +1,50 @@
-# Le navigateur ouvre ce qu'il sait afficher (PDF, images, videos, audio,
-# texte) : pas besoin d'une visionneuse par type de fichier.
+# Applis par defaut, comme sur ChromeOS : Galerie pour les images, videos et
+# musique ; Texte pour les fichiers texte ; Fichiers pour les dossiers ;
+# le navigateur pour le Web et les PDF.
 [Default Applications]
 inode/directory=lumina-files.desktop
 text/html=lumina-browser.desktop
 x-scheme-handler/http=lumina-browser.desktop
 x-scheme-handler/https=lumina-browser.desktop
 application/pdf=lumina-browser.desktop
-text/plain=lumina-browser.desktop
-image/png=lumina-browser.desktop
-image/jpeg=lumina-browser.desktop
-image/gif=lumina-browser.desktop
-image/webp=lumina-browser.desktop
-image/svg+xml=lumina-browser.desktop
-video/mp4=lumina-browser.desktop
-video/webm=lumina-browser.desktop
-audio/mpeg=lumina-browser.desktop
-audio/ogg=lumina-browser.desktop
-audio/flac=lumina-browser.desktop
+text/plain=lumina-text.desktop
+text/markdown=lumina-text.desktop
+text/x-csrc=lumina-text.desktop
+text/x-chdr=lumina-text.desktop
+text/x-python=lumina-text.desktop
+text/x-shellscript=lumina-text.desktop
+application/x-shellscript=lumina-text.desktop
+application/json=lumina-text.desktop
+application/xml=lumina-text.desktop
+text/css=lumina-text.desktop
+text/csv=lumina-text.desktop
+text/x-log=lumina-text.desktop
+application/x-yaml=lumina-text.desktop
+text/x-makefile=lumina-text.desktop
+image/png=lumina-gallery.desktop
+image/jpeg=lumina-gallery.desktop
+image/gif=lumina-gallery.desktop
+image/webp=lumina-gallery.desktop
+image/bmp=lumina-gallery.desktop
+image/tiff=lumina-gallery.desktop
+image/svg+xml=lumina-gallery.desktop
+image/x-icon=lumina-gallery.desktop
+image/avif=lumina-gallery.desktop
+image/heif=lumina-gallery.desktop
+video/mp4=lumina-gallery.desktop
+video/webm=lumina-gallery.desktop
+video/x-matroska=lumina-gallery.desktop
+video/quicktime=lumina-gallery.desktop
+video/x-msvideo=lumina-gallery.desktop
+video/ogg=lumina-gallery.desktop
+video/mpeg=lumina-gallery.desktop
+audio/mpeg=lumina-gallery.desktop
+audio/ogg=lumina-gallery.desktop
+audio/flac=lumina-gallery.desktop
+audio/x-wav=lumina-gallery.desktop
+audio/wav=lumina-gallery.desktop
+audio/mp4=lumina-gallery.desktop
+audio/aac=lumina-gallery.desktop
+audio/webm=lumina-gallery.desktop
+audio/x-vorbis+ogg=lumina-gallery.desktop
+audio/opus=lumina-gallery.desktop

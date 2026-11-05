@@ -13,6 +13,14 @@ background-color=#e9efebf5
 text-color=#171d1a
 progress-color=over #a1f2d7
 
+# Indicateur de volume / luminosite : court, au centre en haut, sans
+# historique.
+[app-name=LuminaOS urgency=low]
+anchor=top-center
+width=260
+default-timeout=1200
+history=0
+
 [urgency=critical]
 default-timeout=0
 background-color=#ffdad6f5

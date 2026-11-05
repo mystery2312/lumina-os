@@ -1,0 +1,25 @@
+#!/bin/sh
+# Touches du clavier : volume, micro, luminosite. Applique, puis affiche un
+# indicateur (notification remplacee a chaque appui, avec barre de niveau).
+#   lumina-osd vol-up|vol-down|mute|mic-mute|bright-up|bright-down
+ID=4242
+osd() { notify-send -a "LuminaOS" -r "$ID" -t 1200 -u low -h "int:value:$2" "$1" 2>/dev/null; }
+case "${1:-}" in
+  vol-up)   wpctl set-mute @DEFAULT_AUDIO_SINK@ 0; wpctl set-volume -l 1.0 @DEFAULT_AUDIO_SINK@ 5%+ ;;
+  vol-down) wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%- ;;
+  mute)     wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle ;;
+  mic-mute) wpctl set-mute @DEFAULT_AUDIO_SOURCE@ toggle
+            if wpctl get-volume @DEFAULT_AUDIO_SOURCE@ | grep -q MUTED; then osd "Micro coupé" 0; else osd "Micro activé" 100; fi
+            exit 0 ;;
+  bright-up)   brightnessctl -q set 5%+ ;;
+  bright-down) brightnessctl -q -n 1 set 5%- ;;
+esac
+case "${1:-}" in
+  vol-*|mute)
+    v=$(wpctl get-volume @DEFAULT_AUDIO_SINK@ 2>/dev/null)
+    p=$(echo "$v" | awk '{ printf "%d", $2 * 100 + 0.5 }')
+    if echo "$v" | grep -q MUTED; then osd "Son coupé" 0; else osd "Volume $p %" "$p"; fi ;;
+  bright-*)
+    p=$(brightnessctl -m 2>/dev/null | cut -d, -f4 | tr -d %)
+    osd "Luminosité $p %" "${p:-0}" ;;
+esac

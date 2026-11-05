@@ -138,3 +138,13 @@ avahi-daemon
 orca
 # Imprimantes USB recentes (IPP sur USB, sans pilote)
 ipp-usb
+# Applis de base : Texte (GtkSourceView), Galerie et Camera (GStreamer)
+libgtksourceview-4-0
+gstreamer1.0-plugins-base
+gstreamer1.0-plugins-good
+gstreamer1.0-gtk3
+gstreamer1.0-libav
+# Ouverture des fichiers et dossiers depuis Chromium (xdg-open)
+xdg-utils
+# Archives (zip, tar, 7z) dans Fichiers : extraire, compresser
+libarchive-tools

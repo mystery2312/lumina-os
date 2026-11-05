@@ -4,5 +4,15 @@
   "DefaultBrowserSettingEnabled": false,
   "MetricsReportingEnabled": false,
   "PromotionalTabsEnabled": false,
-  "NewTabPageLocation": "file:///usr/share/lumina/start.html"
+  "NewTabPageLocation": "file:///usr/share/lumina/start.html",
+  "URLBlocklist": [
+    "file://*"
+  ],
+  "URLAllowlist": [
+    "file:///home/lumina",
+    "file:///usr/share/lumina",
+    "file:///media",
+    "file:///run/media",
+    "file:///tmp"
+  ]
 }

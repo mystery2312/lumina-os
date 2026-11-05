@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Calculatrice
+Exec=lumina-calc
+StartupWMClass=lumina-calc
+X-Lumina-Glyph=calc
+X-Lumina-Color=#188038
+X-Lumina-Kind=Système

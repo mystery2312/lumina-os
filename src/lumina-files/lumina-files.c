@@ -13,8 +13,11 @@
  * Usage : lumina-files [dossier ou URI]
  */
 #include "lumina-ui.h"
+#include "lumina-sys.h"
 #include <gio/gio.h>
 #include <string.h>
+#include <stdio.h>
+#include <stdlib.h>
 
 /* ------------------------------------------------------------------ */
 /* Style                                                               */
@@ -94,6 +97,8 @@ static const char *CSS =
   ".tbtn { background: transparent; color: @pri; border-radius: 20px; padding: 8px 16px; font-weight: 500; }\n"
   ".tbtn:hover { background: alpha(@pri, 0.08); }\n"
   ".fbtn { background: @pri; color: @on_pri; border-radius: 20px; padding: 8px 20px; font-weight: 500; }\n"
+  ".pickbar { background: @c_low; padding: 10px 16px 14px 20px; border-radius: 0 0 16px 0; }\n"
+  ".pickname { background: @surface; color: @on; border: 1px solid @outline_var; border-radius: 8px; padding: 8px 12px; }\n"
   ".snack { background: @on; color: @surface; border-radius: 8px; padding: 6px 8px 6px 16px; margin: 16px;\n"
   "         box-shadow: 0 3px 10px alpha(black, 0.25); }\n"
   ".snack button { background: transparent; color: @pri_c; font-weight: 500; border-radius: 16px; padding: 6px 12px; }\n";
@@ -125,6 +130,13 @@ static GtkWidget *win, *crumbs, *back_btn, *fwd_btn, *search_entry, *view_btn, *
 static GtkWidget *empty_box, *empty_l, *snack_rev, *snack_l, *snack_btn;
 static Icon *view_ic;
 static GFile *cur, *home, *trash;
+/* Mode « choisir » (selecteur de fichiers) */
+static gboolean pick_mode, pick_multi, pick_dir;
+static char *pick_save, *pick_title, *pick_filter;
+static GtkWidget *pick_btn, *pick_name;
+static void pick_finish(void);
+static void setup_drag(GtkWidget *child);
+static void setup_drop(GtkWidget *w);
 static GList *hist_back, *hist_fwd;
 static GPtrArray *entries;
 static gboolean show_hidden, list_mode;
@@ -298,9 +310,11 @@ static GtkWidget *make_child(Entry *e) {
   return w;
 }
 
+static gboolean pick_match(Entry *e);
 static gboolean flow_filter(GtkFlowBoxChild *c, gpointer d) {
   Entry *e = g_object_get_data(G_OBJECT(c), "entry");
   if (!e) return TRUE;
+  if (!pick_match(e)) return FALSE;
   if (e->hidden && !show_hidden) return FALSE;
   const char *q = gtk_entry_get_text(GTK_ENTRY(search_entry));
   if (!*q) return TRUE;
@@ -319,6 +333,7 @@ static void update_empty(void) {
   gboolean searching = *gtk_entry_get_text(GTK_ENTRY(search_entry));
   gtk_label_set_text(GTK_LABEL(empty_l), in_trash() ? "La corbeille est vide" : "Ce dossier est vide");
   gtk_widget_set_visible(empty_box, visible == 0 && !searching);
+  gtk_widget_set_visible(gtk_widget_get_parent(empty_box), visible == 0 && !searching);
   gtk_widget_set_visible(scroll, visible > 0 || searching);
 }
 
@@ -336,6 +351,7 @@ static void rebuild_view(void) {
     gtk_flow_box_insert(GTK_FLOW_BOX(flow), c, -1);
     GtkWidget *child = gtk_widget_get_parent(c);
     g_object_set_data(G_OBJECT(child), "entry", e);
+    setup_drag(child);
   }
   gtk_widget_show_all(flow);
   gtk_flow_box_invalidate_filter(GTK_FLOW_BOX(flow));
@@ -1028,7 +1044,37 @@ static void do_rename(const char *name, gpointer d) {
   g_object_unref(f);
 }
 
+/* Dossiers standards du dossier personnel : ni supprimes ni renommes
+   (comme Telechargements sur ChromeOS) ; raccourcis et applis en dependent. */
+static const char *STD_DIRS[] = {"Documents", "Images", "Musique", "Téléchargements", "Vidéos"};
+static gboolean is_protected(GFile *f) {
+  GFile *par = g_file_get_parent(f);
+  gboolean r = FALSE;
+  if (par && g_file_equal(par, home)) {
+    char *b = g_file_get_basename(f);
+    for (guint i = 0; i < G_N_ELEMENTS(STD_DIRS); i++) if (!g_strcmp0(b, STD_DIRS[i])) r = TRUE;
+    g_free(b);
+  }
+  if (par) g_object_unref(par);
+  return r;
+}
+static gboolean selection_protected(void) {
+  GList *sel = selected_entries();
+  gboolean r = FALSE;
+  for (GList *l = sel; l && !r; l = l->next) r = is_protected(((Entry *)l->data)->file);
+  g_list_free(sel);
+  return r;
+}
+static void ensure_std_dirs(void) {
+  for (guint i = 0; i < G_N_ELEMENTS(STD_DIRS); i++) {
+    char *p = g_build_filename(g_get_home_dir(), STD_DIRS[i], NULL);
+    g_mkdir_with_parents(p, 0755);
+    g_free(p);
+  }
+}
+
 static void rename_selected(void) {
+  if (!in_trash() && selection_protected()) { snack("Ce dossier fait partie du système : il ne peut pas être renommé.", NULL, NULL, NULL, NULL); return; }
   GList *sel = selected_entries();
   if (sel && !sel->next && !in_trash()) {
     Entry *e = sel->data;
@@ -1041,6 +1087,7 @@ static void rename_selected(void) {
 static void do_delete(const char *t, gpointer d) { run_op(d); }
 
 static void delete_selected(gboolean permanent) {
+  if (!in_trash() && selection_protected()) { snack("Ce dossier fait partie du système : il ne peut pas être supprimé.", NULL, NULL, NULL, NULL); return; }
   if (in_trash() || permanent) {
     Op *o = op_from_selection(OP_DELETE);
     if (!o) return;
@@ -1094,6 +1141,70 @@ static void paste(void) {
   run_op(o);
 }
 
+
+/* ------------------------------------------------------------------ */
+/* Glisser-deposer : entre dossiers, vers / depuis les autres applis    */
+/* (Chromium : envoi de fichiers sur un site, par exemple)              */
+/* ------------------------------------------------------------------ */
+static const GtkTargetEntry URI_TARGET[] = {{"text/uri-list", 0, 0}};
+static gboolean is_protected(GFile *f);
+static GList *selected_entries(void);
+
+static void on_drag_begin(GtkWidget *w, GdkDragContext *ctx, gpointer d) {
+  GtkFlowBoxChild *c = GTK_FLOW_BOX_CHILD(w);
+  if (!gtk_flow_box_child_is_selected(c)) {
+    gtk_flow_box_unselect_all(GTK_FLOW_BOX(flow));
+    gtk_flow_box_select_child(GTK_FLOW_BOX(flow), c);
+  }
+  Entry *e = g_object_get_data(G_OBJECT(w), "entry");
+  if (e) {
+    GtkIconTheme *th = gtk_icon_theme_get_default();
+    gtk_drag_set_icon_name(ctx, e->type == G_FILE_TYPE_DIRECTORY ? "folder" : "text-x-generic", 0, 0);
+    (void)th;
+  }
+}
+static void on_drag_get(GtkWidget *w, GdkDragContext *ctx, GtkSelectionData *sd, guint info, guint t, gpointer d) {
+  GList *sel = selected_entries();
+  int n = g_list_length(sel), i = 0;
+  char **uris = g_new0(char *, n + 1);
+  for (GList *l = sel; l; l = l->next) uris[i++] = g_file_get_uri(((Entry *)l->data)->file);
+  gtk_selection_data_set_uris(sd, uris);
+  g_strfreev(uris); g_list_free(sel);
+}
+static void setup_drag(GtkWidget *child) {
+  if (in_trash()) return;
+  gtk_drag_source_set(child, GDK_BUTTON1_MASK, URI_TARGET, 1, GDK_ACTION_COPY | GDK_ACTION_MOVE);
+  g_signal_connect(child, "drag-begin", G_CALLBACK(on_drag_begin), NULL);
+  g_signal_connect(child, "drag-data-get", G_CALLBACK(on_drag_get), NULL);
+}
+
+static void on_drop(GtkWidget *w, GdkDragContext *ctx, gint x, gint y, GtkSelectionData *sd, guint info, guint t, gpointer d) {
+  char **uris = gtk_selection_data_get_uris(sd);
+  if (!uris || in_trash()) { g_strfreev(uris); gtk_drag_finish(ctx, FALSE, FALSE, t); return; }
+  /* Depot sur un dossier de la grille : dans ce dossier ; sinon ici */
+  GFile *dest = g_object_ref(cur);
+  GtkFlowBoxChild *c = w == gtk_widget_get_parent(flow) ? gtk_flow_box_get_child_at_pos(GTK_FLOW_BOX(flow), x, y) : NULL;
+  Entry *te = c ? g_object_get_data(G_OBJECT(c), "entry") : NULL;
+  if (te && te->type == G_FILE_TYPE_DIRECTORY) { g_object_unref(dest); dest = g_object_ref(te->file); }
+  /* Depuis Fichiers : deplacer ; depuis une autre appli : copier */
+  gboolean internal = gtk_drag_get_source_widget(ctx) != NULL;
+  Op *o = g_new0(Op, 1);
+  o->kind = internal ? OP_MOVE : OP_COPY;
+  o->dest = dest;
+  for (char **u = uris; *u; u++) {
+    GFile *f = g_file_new_for_uri(*u);
+    if (g_file_equal(f, dest) || (internal && is_protected(f))) { g_object_unref(f); continue; }
+    o->files = g_list_append(o->files, f);
+  }
+  g_strfreev(uris);
+  if (o->files) run_op(o); else op_free(o);
+  gtk_drag_finish(ctx, TRUE, FALSE, t);
+}
+static void setup_drop(GtkWidget *w) {
+  gtk_drag_dest_set(w, GTK_DEST_DEFAULT_ALL, URI_TARGET, 1, GDK_ACTION_COPY | GDK_ACTION_MOVE);
+  g_signal_connect(w, "drag-data-received", G_CALLBACK(on_drop), NULL);
+}
+
 static void open_entry(Entry *e) {
   if (e->type == G_FILE_TYPE_DIRECTORY || e->type == G_FILE_TYPE_MOUNTABLE) { navigate(e->file, TRUE); return; }
   if (in_trash()) { snack("Restaurez l'élément pour l'ouvrir.", NULL, NULL, NULL, NULL); return; }
@@ -1130,16 +1241,95 @@ static GtkWidget *menu, *more_btn;
 static void on_mitem(GtkMenuItem *mi, gpointer d) { ((Action)d)(); }
 
 static void a_open(void) { GList *s = selected_entries(); if (s) open_entry(s->data); g_list_free(s); }
-static void a_cut(void) { clip_set(TRUE); }
+static void a_cut(void) {
+  if (selection_protected()) { snack("Ce dossier fait partie du système : copiez-le plutôt.", NULL, NULL, NULL, NULL); return; }
+  clip_set(TRUE);
+}
 static void a_copy(void) { clip_set(FALSE); }
 static void a_trash(void) { delete_selected(FALSE); }
 static void a_delete(void) { delete_selected(TRUE); }
+/* Image : fond d'ecran, comme le clic droit de ChromeOS */
+static void a_wallpaper(void) {
+  GList *sel = selected_entries();
+  if (sel) {
+    char *p = g_file_get_path(((Entry *)sel->data)->file);
+    const char *argv[] = {"lumina-set-wallpaper", p, NULL};
+    int st; g_free(run_argv(argv, &st));
+    snack(st == 0 ? "Fond d'écran modifié" : "Impossible d'utiliser cette image", NULL, NULL, NULL, NULL);
+    g_free(p);
+  }
+  g_list_free(sel);
+}
 
 static void menu_add(const char *text, Action a, gboolean danger) {
   GtkWidget *mi = gtk_menu_item_new_with_label(text);
   if (danger) add_class(mi, "danger");
   g_signal_connect(mi, "activate", G_CALLBACK(on_mitem), (gpointer)a);
   gtk_menu_shell_append(GTK_MENU_SHELL(menu), mi);
+}
+
+
+/* Ouvrir avec une autre appli que celle par defaut */
+static void on_open_with(GtkMenuItem *mi, gpointer app) {
+  GList *sel = selected_entries();
+  GList *files = NULL;
+  for (GList *l = sel; l; l = l->next) files = g_list_append(files, ((Entry *)l->data)->file);
+  GdkAppLaunchContext *ctx = gdk_display_get_app_launch_context(gdk_display_get_default());
+  g_app_info_launch(G_APP_INFO(app), files, G_APP_LAUNCH_CONTEXT(ctx), NULL);
+  g_object_unref(ctx); g_list_free(files); g_list_free(sel);
+}
+
+/* Archives (zip, tar, 7z, rar...) : bsdtar, comme le fait ChromeOS */
+static gboolean is_archive(Entry *e) {
+  const char *t = e->ctype ? e->ctype : "";
+  return strstr(t, "zip") || strstr(t, "x-tar") || strstr(t, "compressed-tar") || strstr(t, "x-7z") ||
+         strstr(t, "x-rar") || strstr(t, "x-xz") || strstr(t, "gzip") || strstr(t, "bzip");
+}
+static void archive_done(GObject *o, GAsyncResult *r, gpointer msg) {
+  gboolean ok = g_subprocess_wait_check_finish(G_SUBPROCESS(o), r, NULL);
+  snack(ok ? msg : "L'opération a échoué", NULL, NULL, NULL, NULL);
+  g_object_unref(o); g_free(msg);
+  load_dir();
+}
+static void a_extract(void) {
+  GList *sel = selected_entries();
+  if (sel) {
+    Entry *e = sel->data;
+    char *src = g_file_get_path(e->file), *dir = g_file_get_path(cur);
+    /* Dossier du nom de l'archive, sans ecraser un dossier existant */
+    char *base = g_strdup(e->name), *dot = strchr(base[0] == '.' ? base + 1 : base, '.');
+    if (dot) *dot = 0;
+    char *dest = g_build_filename(dir, base, NULL);
+    for (int i = 2; g_file_test(dest, G_FILE_TEST_EXISTS) && i < 100; i++) { g_free(dest); char *n = g_strdup_printf("%s (%d)", base, i); dest = g_build_filename(dir, n, NULL); g_free(n); }
+    g_mkdir_with_parents(dest, 0755);
+    GSubprocess *sp = g_subprocess_new(G_SUBPROCESS_FLAGS_STDERR_SILENCE, NULL, "bsdtar", "-xf", src, "-C", dest, NULL);
+    snack("Extraction…", NULL, NULL, NULL, NULL);
+    if (sp) g_subprocess_wait_check_async(sp, NULL, archive_done, g_strdup("Archive extraite"));
+    g_free(src); g_free(dir); g_free(base); g_free(dest);
+  }
+  g_list_free(sel);
+}
+static void a_compress(void) {
+  GList *sel = selected_entries();
+  if (!sel) return;
+  char *dir = g_file_get_path(cur);
+  const char *first = ((Entry *)sel->data)->name;
+  char *name = sel->next ? g_strdup("Archive.zip") : g_strdup_printf("%s.zip", first);
+  char *dest = g_build_filename(dir, name, NULL);
+  for (int i = 2; g_file_test(dest, G_FILE_TEST_EXISTS) && i < 100; i++) {
+    g_free(dest); char *n = sel->next ? g_strdup_printf("Archive (%d).zip", i) : g_strdup_printf("%s (%d).zip", first, i);
+    dest = g_build_filename(dir, n, NULL); g_free(n);
+  }
+  GPtrArray *argv = g_ptr_array_new();
+  g_ptr_array_add(argv, "bsdtar"); g_ptr_array_add(argv, "-a"); g_ptr_array_add(argv, "-cf"); g_ptr_array_add(argv, dest);
+  g_ptr_array_add(argv, "-C"); g_ptr_array_add(argv, dir);
+  for (GList *l = sel; l; l = l->next) g_ptr_array_add(argv, ((Entry *)l->data)->name);
+  g_ptr_array_add(argv, NULL);
+  GSubprocess *sp = g_subprocess_newv((const char *const *)argv->pdata, G_SUBPROCESS_FLAGS_STDERR_SILENCE, NULL);
+  snack("Compression…", NULL, NULL, NULL, NULL);
+  if (sp) g_subprocess_wait_check_async(sp, NULL, archive_done, g_strdup("Archive ZIP créée"));
+  g_ptr_array_free(argv, TRUE);
+  g_free(dir); g_free(name); g_free(dest); g_list_free(sel);
 }
 
 /* Menu Material : sous le pointeur (clic droit) ou sous le bouton "plus".
@@ -1157,10 +1347,37 @@ static void show_menu(GdkEvent *ev) {
     else menu_add("Vider la corbeille", empty_trash, TRUE);
   } else if (n) {
     if (n == 1) menu_add("Ouvrir", a_open, FALSE);
-    menu_add("Couper", a_cut, FALSE);
+    if (n == 1) {
+      GList *one = selected_entries();
+      Entry *e = one ? one->data : NULL;
+      if (e && e->ctype && g_str_has_prefix(e->ctype, "image/")) menu_add("Définir comme fond d'écran", a_wallpaper, FALSE);
+      if (e && e->type != G_FILE_TYPE_DIRECTORY && e->ctype) {
+        /* Ouvrir avec : les applis qui savent ouvrir ce type */
+        GList *apps = g_app_info_get_all_for_type(e->ctype);
+        if (apps) {
+          GtkWidget *sub = gtk_menu_new(), *mi = gtk_menu_item_new_with_label("Ouvrir avec");
+          gtk_menu_set_reserve_toggle_size(GTK_MENU(sub), FALSE);
+          for (GList *l = apps; l; l = l->next) {
+            if (!g_app_info_should_show(l->data)) continue;
+            GtkWidget *ai = gtk_menu_item_new_with_label(g_app_info_get_name(l->data));
+            g_signal_connect_data(ai, "activate", G_CALLBACK(on_open_with), g_object_ref(l->data),
+                                  (GClosureNotify)(void (*)(void))g_object_unref, 0);
+            gtk_menu_shell_append(GTK_MENU_SHELL(sub), ai);
+          }
+          gtk_menu_item_set_submenu(GTK_MENU_ITEM(mi), sub);
+          gtk_menu_shell_append(GTK_MENU_SHELL(menu), mi);
+          g_list_free_full(apps, g_object_unref);
+        }
+      }
+      if (e && is_archive(e)) menu_add("Extraire ici", a_extract, FALSE);
+      g_list_free(one);
+    }
+    gboolean prot = selection_protected();
+    if (!prot) menu_add("Couper", a_cut, FALSE);
     menu_add("Copier", a_copy, FALSE);
-    if (n == 1) menu_add("Renommer", rename_selected, FALSE);
-    menu_add("Mettre à la corbeille", a_trash, FALSE);
+    menu_add("Compresser en ZIP", a_compress, FALSE);
+    if (n == 1 && !prot) menu_add("Renommer", rename_selected, FALSE);
+    if (!prot) menu_add("Mettre à la corbeille", a_trash, FALSE);
   } else {
     menu_add("Nouveau dossier", new_folder, FALSE);
     if (clip) menu_add("Coller", paste, FALSE);
@@ -1188,6 +1405,12 @@ static gboolean on_flow_press(GtkWidget *w, GdkEventButton *ev, gpointer d) {
 
 static void on_child_activated(GtkFlowBox *fb, GtkFlowBoxChild *c, gpointer d) {
   Entry *e = g_object_get_data(G_OBJECT(c), "entry");
+  if (e && pick_mode && e->type != G_FILE_TYPE_DIRECTORY) {
+    if (pick_save) gtk_entry_set_text(GTK_ENTRY(pick_name), e->name);
+    else { gtk_flow_box_unselect_all(fb); gtk_flow_box_select_child(fb, c); }
+    pick_finish();
+    return;
+  }
   if (e) open_entry(e);
 }
 
@@ -1242,6 +1465,117 @@ static GtkWidget *round_btn(const char *glyph, const char *tip, GCallback cb, Ic
   g_signal_connect_swapped(b, "clicked", cb, NULL);
   if (ic_out) *ic_out = ic;
   return b;
+}
+
+
+/* ------------------------------------------------------------------ */
+/* Mode « choisir » : Fichiers sert de selecteur pour Chromium et les   */
+/* applis (portail FileChooser du shell), comme sur ChromeOS. Le choix  */
+/* est ecrit sur la sortie standard (une adresse file:// par ligne).    */
+/* ------------------------------------------------------------------ */
+
+static gboolean pick_match(Entry *e) {
+  if (!pick_filter || e->type == G_FILE_TYPE_DIRECTORY) return TRUE;
+  if (pick_dir) return FALSE;
+  char **pats = g_strsplit(pick_filter, ";", -1);
+  gboolean ok = FALSE;
+  char *low = g_utf8_strdown(e->name, -1);
+  for (char **p = pats; *p && !ok; p++) {
+    if (strchr(*p, '/')) ok = e->ctype && g_content_type_is_mime_type(e->ctype, *p);
+    else { char *lp = g_utf8_strdown(*p, -1); ok = g_pattern_match_simple(lp, low); g_free(lp); }
+  }
+  g_free(low); g_strfreev(pats);
+  return ok;
+}
+
+static void pick_output(GList *files) {
+  for (GList *l = files; l; l = l->next) { char *u = g_file_get_uri(l->data); printf("%s\n", u); g_free(u); }
+  fflush(stdout);
+  exit(0);
+}
+
+static void pick_finish(void) {
+  GList *out = NULL;
+  if (pick_save) {
+    const char *n = gtk_entry_get_text(GTK_ENTRY(pick_name));
+    if (!*n || strchr(n, '/')) { snack("Saisissez un nom de fichier", NULL, NULL, NULL, NULL); return; }
+    GFile *f = g_file_get_child(cur, n);
+    if (g_file_query_exists(f, NULL)) {
+      GtkWidget *m = gtk_message_dialog_new(GTK_WINDOW(win), GTK_DIALOG_MODAL, GTK_MESSAGE_QUESTION, GTK_BUTTONS_NONE,
+                                            "« %s » existe déjà. Le remplacer ?", n);
+      gtk_dialog_add_buttons(GTK_DIALOG(m), "Annuler", GTK_RESPONSE_CANCEL, "Remplacer", GTK_RESPONSE_ACCEPT, NULL);
+      int r = gtk_dialog_run(GTK_DIALOG(m)); gtk_widget_destroy(m);
+      if (r != GTK_RESPONSE_ACCEPT) { g_object_unref(f); return; }
+    }
+    out = g_list_append(out, f);
+  } else {
+    GList *sel = selected_entries();
+    for (GList *l = sel; l; l = l->next) {
+      Entry *e = l->data;
+      gboolean isdir = e->type == G_FILE_TYPE_DIRECTORY;
+      if (isdir == pick_dir) out = g_list_append(out, g_object_ref(e->file));
+    }
+    g_list_free(sel);
+    if (!out && pick_dir) out = g_list_append(out, g_object_ref(cur));
+    if (!out) { snack(pick_dir ? "Choisissez un dossier" : "Choisissez un fichier", NULL, NULL, NULL, NULL); return; }
+  }
+  pick_output(out);
+}
+static void on_pick(GtkButton *b, gpointer d) { pick_finish(); }
+static void on_pick_cancel(GtkButton *b, gpointer d) { exit(1); }
+
+static void pick_parse(int argc, char **argv) {
+  for (int i = 1; i < argc; i++) {
+    if (!strcmp(argv[i], "--pick")) pick_mode = TRUE;
+    else if (!strcmp(argv[i], "--multiple")) pick_multi = TRUE;
+    else if (!strcmp(argv[i], "--directory")) pick_dir = TRUE;
+    else if (!strcmp(argv[i], "--save") && i + 1 < argc) pick_save = argv[++i];
+    else if (!strcmp(argv[i], "--title") && i + 1 < argc) pick_title = argv[++i];
+    else if (!strcmp(argv[i], "--filter") && i + 1 < argc) pick_filter = argv[++i];
+    else if (!strcmp(argv[i], "--folder") && i + 1 < argc) { i++; }
+  }
+}
+static const char *pick_folder(int argc, char **argv) {
+  for (int i = 1; i + 1 < argc; i++) if (!strcmp(argv[i], "--folder")) return argv[i + 1];
+  return NULL;
+}
+
+/* Barres du selecteur : bouton principal et nom du fichier a enregistrer */
+static void pick_build(GtkWidget *hb, GtkWidget *inner) {
+  const char *lbl = pick_save ? "Enregistrer" : pick_dir ? "Sélectionner" : "Ouvrir";
+  pick_btn = gtk_button_new_with_label(lbl);
+  add_class(pick_btn, "fbtn");
+  gtk_widget_set_valign(pick_btn, GTK_ALIGN_CENTER);
+  g_signal_connect(pick_btn, "clicked", G_CALLBACK(on_pick), NULL);
+  GtkWidget *cancel = gtk_button_new_with_label("Annuler");
+  add_class(cancel, "tbtn");
+  gtk_widget_set_valign(cancel, GTK_ALIGN_CENTER);
+  g_signal_connect(cancel, "clicked", G_CALLBACK(on_pick_cancel), NULL);
+  if (pick_save) {
+    GtkWidget *bar = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 10);
+    add_class(bar, "pickbar");
+    gtk_container_add(GTK_CONTAINER(bar), label("Nom", "meta", 0));
+    pick_name = gtk_entry_new();
+    add_class(pick_name, "pickname");
+    gtk_entry_set_text(GTK_ENTRY(pick_name), pick_save);
+    gtk_widget_set_hexpand(pick_name, TRUE);
+    g_signal_connect_swapped(pick_name, "activate", G_CALLBACK(pick_finish), NULL);
+    gtk_container_add(GTK_CONTAINER(bar), pick_name);
+    gtk_container_add(GTK_CONTAINER(bar), cancel);
+    gtk_container_add(GTK_CONTAINER(bar), pick_btn);
+    gtk_container_add(GTK_CONTAINER(inner), bar);
+  } else {
+    GtkWidget *bar = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 10);
+    add_class(bar, "pickbar");
+    GtkWidget *hint = label(pick_dir ? "Ouvrez le dossier voulu, puis Sélectionner" :
+                            pick_multi ? "Ctrl + clic pour choisir plusieurs fichiers" : "Double-clic pour ouvrir", "meta", 0);
+    gtk_widget_set_hexpand(hint, TRUE);
+    gtk_container_add(GTK_CONTAINER(bar), hint);
+    gtk_container_add(GTK_CONTAINER(bar), cancel);
+    gtk_container_add(GTK_CONTAINER(bar), pick_btn);
+    gtk_container_add(GTK_CONTAINER(inner), bar);
+  }
+  (void)hb;
 }
 
 static void build_window(void) {
@@ -1318,6 +1652,7 @@ static void build_window(void) {
   gtk_widget_add_events(eb, GDK_BUTTON_PRESS_MASK);
   g_signal_connect(eb, "button-press-event", G_CALLBACK(on_flow_press), NULL);
   gtk_container_add(GTK_CONTAINER(eb), flow);
+  setup_drop(eb);
   gtk_container_add(GTK_CONTAINER(scroll), eb);
   gtk_container_add(GTK_CONTAINER(inner), scroll);
 
@@ -1329,7 +1664,15 @@ static void build_window(void) {
   gtk_container_add(GTK_CONTAINER(empty_box), eic);
   empty_l = label("", "empty", 0.5);
   gtk_container_add(GTK_CONTAINER(empty_box), empty_l);
-  gtk_container_add(GTK_CONTAINER(inner), empty_box);
+  /* Dossier vide : clic droit (Nouveau dossier, Coller) et depot de
+     fichiers aussi sur ce message */
+  GtkWidget *eeb = gtk_event_box_new();
+  gtk_widget_set_vexpand(eeb, TRUE);
+  gtk_widget_add_events(eeb, GDK_BUTTON_PRESS_MASK);
+  g_signal_connect(eeb, "button-press-event", G_CALLBACK(on_flow_press), NULL);
+  gtk_container_add(GTK_CONTAINER(eeb), empty_box);
+  setup_drop(eeb);
+  gtk_container_add(GTK_CONTAINER(inner), eeb);
   gtk_container_add(GTK_CONTAINER(overlay), inner);
 
   snack_rev = gtk_revealer_new();
@@ -1345,6 +1688,7 @@ static void build_window(void) {
   gtk_container_add(GTK_CONTAINER(snack_rev), sb);
   gtk_overlay_add_overlay(GTK_OVERLAY(overlay), snack_rev);
 
+  if (pick_mode) pick_build(NULL, inner);
   gtk_box_pack_start(GTK_BOX(body), overlay, TRUE, TRUE, 0);
   gtk_container_add(GTK_CONTAINER(win), body);
   gtk_widget_show_all(win);
@@ -1357,9 +1701,11 @@ static void on_theme_changed(void) { if (entries) rebuild_view(); }
 int main(int argc, char **argv) {
   g_set_prgname("lumina-files");   /* nom de fenetre : rattache a son icone d'etagere */
   gtk_init(&argc, &argv);
+  pick_parse(argc, argv);
   lumina_ui_init(CSS, on_theme_changed);
 
   home = g_file_new_for_path(g_get_home_dir());
+  ensure_std_dirs();
   trash = g_file_new_for_uri("trash:///");
   volumes = g_volume_monitor_get();
   g_signal_connect(volumes, "mount-added", G_CALLBACK(on_volumes_changed), NULL);
@@ -1369,12 +1715,18 @@ int main(int argc, char **argv) {
 
   build_window();
   rebuild_nav();
-  GFile *start = argc > 1 ? g_file_new_for_commandline_arg(argv[1]) : g_object_ref(home);
+  const char *pf = pick_mode ? pick_folder(argc, argv) : NULL;
+  GFile *start = pf ? g_file_new_for_path(pf) : (argc > 1 && argv[1][0] != '-') ? g_file_new_for_commandline_arg(argv[1]) : g_object_ref(home);
+  if (pick_mode) {
+    gtk_window_set_title(GTK_WINDOW(win), pick_title ? pick_title : pick_save ? "Enregistrer" : "Choisir un fichier");
+    gtk_flow_box_set_selection_mode(GTK_FLOW_BOX(flow), pick_multi ? GTK_SELECTION_MULTIPLE : GTK_SELECTION_SINGLE);
+    gtk_window_set_keep_above(GTK_WINDOW(win), TRUE);
+  }
   navigate(start, FALSE);
   g_object_unref(start);
   gtk_widget_set_sensitive(back_btn, FALSE);
   gtk_widget_set_sensitive(fwd_btn, FALSE);
   gtk_widget_grab_focus(flow);
   gtk_main();
-  return 0;
+  return pick_mode ? 1 : 0;   /* fenetre fermee sans choix : annule */
 }

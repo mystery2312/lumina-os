@@ -7,7 +7,15 @@ if pgrep -x wf-recorder >/dev/null; then
   pkill -INT -x wf-recorder
   # Laisser wf-recorder finir d'ecrire le fichier
   for _ in 1 2 3 4 5 6 7 8 9 10; do pgrep -x wf-recorder >/dev/null || break; sleep 0.5; done
-  notify-send -a "Enregistrement de l'écran" "Enregistrement terminé" "Dans Vidéos › Enregistrements d'écran"
+  LASTV=$(ls -t "$DIR"/*.mp4 2>/dev/null | head -1)
+  (
+    A=$(notify-send -a "Enregistrement de l'écran" -A default=Lire -A dossier="Afficher dans le dossier" \
+        "Enregistrement terminé" "Dans Vidéos › Enregistrements d'écran")
+    case "$A" in
+      default) [ -n "$LASTV" ] && lumina-gallery "$LASTV" ;;
+      dossier) lumina-files "$DIR" ;;
+    esac
+  ) >/dev/null 2>&1 &
 else
   mkdir -p "$DIR"
   F="$DIR/Enregistrement $(date '+%Y-%m-%d %H.%M.%S').mp4"

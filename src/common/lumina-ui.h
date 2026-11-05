@@ -18,7 +18,11 @@ extern const Palette *P;   /* palette en cours (claire ou sombre) */
 extern gboolean dark;
 
 /* Roles de couleur des icones : re-rendues a chaque changement de theme. */
-enum { R_ON, R_ON_VAR, R_PRI, R_TER, R_ON_PRI_C, R_ON_SEC_C, R_ON_TER_C };
+enum { R_ON, R_ON_VAR, R_PRI, R_TER, R_ON_PRI_C, R_ON_SEC_C, R_ON_TER_C, R_BAR };
+/* Barre d'etat posee sur une photo sombre : textes et icones en blanc */
+extern gboolean lumina_bar_light;
+void lumina_ui_rerender(void);
+void lumina_ui_set_dark_local(gboolean on);   /* sans l enregistrer */          /* redessine toutes les icones */
 const char *role_color(int r);
 
 /* Glyphes 24 px, trait 1.8 */

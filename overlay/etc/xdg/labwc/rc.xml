@@ -17,8 +17,8 @@
     <!-- Pas d'icone de fenetre : labwc afficherait son logo par defaut pour
          toutes les applis web. Boutons a droite, comme sur Aluminium. -->
     <titlebar><layout>:iconify,max,close</layout></titlebar>
-    <font place="ActiveWindow"><name>Roboto</name><size>12</size></font>
-    <font place="InactiveWindow"><name>Roboto</name><size>12</size></font>
+    <font place="ActiveWindow"><name>Roboto</name><size>11</size></font>
+    <font place="InactiveWindow"><name>Roboto</name><size>11</size></font>
     <font place="OnScreenDisplay"><name>Roboto</name><size>10</size></font>
   </theme>
   <!-- Bureaux virtuels facon ChromeOS (Windows + 1..4, Windows + [ / ]) -->
@@ -79,14 +79,14 @@
     <keybind key="A-minus"><action name="Iconify" /></keybind>
     <keybind key="W-Down"><action name="Iconify" /></keybind>
     <!-- Bureaux : Windows + [ / ] change de bureau, + Maj y envoie la fenetre -->
-    <keybind key="W-bracketleft"><action name="GoToDesktop" to="left" wrap="no" /></keybind>
-    <keybind key="W-bracketright"><action name="GoToDesktop" to="right" wrap="no" /></keybind>
-    <keybind key="W-S-bracketleft"><action name="SendToDesktop" to="left" follow="yes" wrap="no" /></keybind>
-    <keybind key="W-S-bracketright"><action name="SendToDesktop" to="right" follow="yes" wrap="no" /></keybind>
-    <keybind key="W-1"><action name="GoToDesktop" to="1" /></keybind>
-    <keybind key="W-2"><action name="GoToDesktop" to="2" /></keybind>
-    <keybind key="W-3"><action name="GoToDesktop" to="3" /></keybind>
-    <keybind key="W-4"><action name="GoToDesktop" to="4" /></keybind>
+    <keybind key="W-bracketleft"><action name="GoToDesktop" to="left" wrap="no" /><action name="Execute" command="lumina-shell --action at-desk-prev" /></keybind>
+    <keybind key="W-bracketright"><action name="GoToDesktop" to="right" wrap="no" /><action name="Execute" command="lumina-shell --action at-desk-next" /></keybind>
+    <keybind key="W-S-bracketleft"><action name="SendToDesktop" to="left" follow="yes" wrap="no" /><action name="Execute" command="lumina-shell --action at-desk-prev" /></keybind>
+    <keybind key="W-S-bracketright"><action name="SendToDesktop" to="right" follow="yes" wrap="no" /><action name="Execute" command="lumina-shell --action at-desk-next" /></keybind>
+    <keybind key="W-1"><action name="GoToDesktop" to="1" /><action name="Execute" command="lumina-shell --action at-desk-1" /></keybind>
+    <keybind key="W-2"><action name="GoToDesktop" to="2" /><action name="Execute" command="lumina-shell --action at-desk-2" /></keybind>
+    <keybind key="W-3"><action name="GoToDesktop" to="3" /><action name="Execute" command="lumina-shell --action at-desk-3" /></keybind>
+    <keybind key="W-4"><action name="GoToDesktop" to="4" /><action name="Execute" command="lumina-shell --action at-desk-4" /></keybind>
     <keybind key="W-S-1"><action name="SendToDesktop" to="1" follow="no" /></keybind>
     <keybind key="W-S-2"><action name="SendToDesktop" to="2" follow="no" /></keybind>
     <keybind key="W-S-3"><action name="SendToDesktop" to="3" follow="no" /></keybind>
@@ -103,6 +103,17 @@
     <keybind key="W-C-m"><action name="ToggleMagnify" /></keybind>
     <keybind key="W-C-equal"><action name="ZoomIn" /></keybind>
     <keybind key="W-C-minus"><action name="ZoomOut" /></keybind>
+    <!-- Touches multimedia des claviers (portables surtout) -->
+    <keybind key="XF86AudioRaiseVolume"><action name="Execute" command="lumina-osd vol-up" /></keybind>
+    <keybind key="XF86AudioLowerVolume"><action name="Execute" command="lumina-osd vol-down" /></keybind>
+    <keybind key="XF86AudioMute"><action name="Execute" command="lumina-osd mute" /></keybind>
+    <keybind key="XF86AudioMicMute"><action name="Execute" command="lumina-osd mic-mute" /></keybind>
+    <keybind key="XF86MonBrightnessUp"><action name="Execute" command="lumina-osd bright-up" /></keybind>
+    <keybind key="XF86MonBrightnessDown"><action name="Execute" command="lumina-osd bright-down" /></keybind>
+    <keybind key="XF86AudioPlay"><action name="Execute" command="sh -c 'busctl --user call org.mpris.MediaPlayer2.chromium.instance$(pgrep -o -f /usr/lib/chromium/chromium) /org/mpris/MediaPlayer2 org.mpris.MediaPlayer2.Player PlayPause'" /></keybind>
+    <keybind key="XF86Calculator"><action name="Execute" command="lumina-calc" /></keybind>
+    <keybind key="XF86Explorer"><action name="Execute" command="lumina-files" /></keybind>
+    <keybind key="XF86Search"><action name="Execute" command="lumina-shell --action launcher" /></keybind>
     <!-- Aide : liste des raccourcis -->
     <keybind key="C-A-slash"><action name="Execute" command="lumina-settings raccourcis" /></keybind>
   </keyboard>

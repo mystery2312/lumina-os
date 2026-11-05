@@ -2,3 +2,8 @@
 # (GNOME n'affiche que Fermer par defaut).
 [org.gnome.desktop.wm.preferences]
 button-layout=':minimize,maximize,close'
+
+# Theme GTK de LuminaOS (boites de dialogue, applis Linux)
+[org.gnome.desktop.interface]
+gtk-theme='Lumina'
+font-name='Roboto 10'

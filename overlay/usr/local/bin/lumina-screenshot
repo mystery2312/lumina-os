@@ -25,4 +25,14 @@ else
 fi
 [ "$N" -gt 0 ] || exit 1
 if [ "$N" = 1 ]; then T="Capture enregistrée"; else T="$N captures enregistrées (une par écran)"; fi
-notify-send -a "Capture d'écran" -i "$LAST" "$T" "Dans Images › Captures d'écran"
+# Copie dans le presse-papiers (comme ChromeOS), puis notification : un clic
+# l'ouvre dans la Galerie.
+wl-copy --type image/png < "$LAST" 2>/dev/null || true
+(
+  A=$(notify-send -a "Capture d'écran" -i "$LAST" -A default=Ouvrir -A dossier="Afficher dans le dossier" \
+      "$T" "Copiée dans le presse-papiers · Images › Captures d'écran")
+  case "$A" in
+    default) lumina-gallery "$LAST" ;;
+    dossier) lumina-files "$DIR" ;;
+  esac
+) >/dev/null 2>&1 &

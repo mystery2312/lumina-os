@@ -1,0 +1,13 @@
+#!/bin/sh
+# Definit une image comme fond d'ecran (clic droit dans Fichiers, Galerie).
+# Le shell et les applis LuminaOS surveillent ~/.config/lumina et suivent.
+# Si la couleur du theme n'a pas ete choisie a la main, elle suit la photo.
+set -e
+[ -r "${1:-}" ] || { echo "usage : lumina-set-wallpaper IMAGE" >&2; exit 1; }
+D="$HOME/.config/lumina"
+mkdir -p "$D"
+cp -f -- "$1" "$D/wallpaper.tmp"
+mv -f "$D/wallpaper.tmp" "$D/wallpaper"
+A=$(cat "$D/accent" 2>/dev/null || true)
+[ -z "$A" ] && printf 'wallpaper' > "$D/accent"
+exit 0

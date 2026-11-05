@@ -39,7 +39,9 @@ static void spawn_later(int ms, char **argv) { g_timeout_add(ms, delayed_spawn, 
 /* ------------------------------------------------------------------ */
 static GtkWidget *ov_win, *ov_flow, *ov_empty, *clip_win, *clip_list, *emoji_win, *emoji_flow, *emoji_entry;
 
+static GtkWidget *cal_win;
 static void extras_close(void) {
+  if (cal_win) gtk_widget_hide(cal_win);
   if (ov_win) gtk_widget_hide(ov_win);
   if (clip_win) gtk_widget_hide(clip_win);
   if (emoji_win) gtk_widget_hide(emoji_win);
@@ -72,8 +74,10 @@ static void show_popup(GtkWidget *w) {
 /* ------------------------------------------------------------------ */
 /* labwc n'expose pas ses bureaux aux clients : on passe par ses
    raccourcis (Windows + 1..4), tapes par le clavier virtuel de wtype. */
+static int desk_cur;
 static void on_desk(GtkButton *b, gpointer d) {
   close_panels();
+  desk_cur = GPOINTER_TO_INT(d);
   char *k = g_strdup_printf("%d", GPOINTER_TO_INT(d));
   char *argv[] = {"wtype", "-M", "logo", k, "-m", "logo", NULL};
   spawn_later(120, g_strdupv(argv));
@@ -144,32 +148,103 @@ static void fill_overview(void) {
   gtk_widget_set_visible(ov_empty, n == 0);
 }
 
-static void build_overview(void) {
-  ov_win = popup_window("lumina-overview", TRUE);
-  GtkWidget *eb = gtk_event_box_new();
-  g_signal_connect(eb, "button-press-event", G_CALLBACK(on_ov_bg), NULL);
-  GtkWidget *v = gtk_box_new(GTK_ORIENTATION_VERTICAL, 18);
-  add_class(v, "overview");
-  /* Bureaux */
-  GtkWidget *desks = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 10);
-  gtk_widget_set_halign(desks, GTK_ALIGN_CENTER);
-  for (int i = 1; i <= 4; i++) {
+/* Bureaux facon ChromeOS : vignettes en haut de la vue d'ensemble (fond
+   d'ecran en miniature, nom dessous, bureau actuel entoure) et bouton +.
+   labwc a 4 bureaux ; on n'en montre que ceux "ouverts" (1 au depart). */
+static int desk_count = 1;
+static GtkWidget *desks_box;
+
+static void save_desks(void) {
+  char *p = cfg_path("desks"), *v = g_strdup_printf("%d\n", desk_count);
+  g_file_set_contents(p, v, -1, NULL);
+  g_free(p); g_free(v);
+}
+static gboolean draw_desk_thumb(GtkWidget *w, cairo_t *cr, gpointer d) {
+  double W = gtk_widget_get_allocated_width(w), H = gtk_widget_get_allocated_height(w), r = 10;
+  cairo_new_sub_path(cr);
+  cairo_arc(cr, W - r, r, r, -M_PI / 2, 0); cairo_arc(cr, W - r, H - r, r, 0, M_PI / 2);
+  cairo_arc(cr, r, H - r, r, M_PI / 2, M_PI); cairo_arc(cr, r, r, r, M_PI, 3 * M_PI / 2);
+  cairo_close_path(cr);
+  cairo_clip(cr);
+  draw_wall(w, cr, NULL);
+  return FALSE;
+}
+static void fill_desks(void);
+static void on_desk_add(GtkButton *b, gpointer d) {
+  if (desk_count >= 4) return;
+  desk_count++; save_desks();
+  on_desk(NULL, GINT_TO_POINTER(desk_count));
+}
+static void fill_desks(void) {
+  GList *k = gtk_container_get_children(GTK_CONTAINER(desks_box));
+  for (GList *l = k; l; l = l->next) gtk_widget_destroy(l->data);
+  g_list_free(k);
+  if (desk_cur > desk_count) desk_count = desk_cur;
+  for (int i = 1; i <= desk_count; i++) {
+    GtkWidget *b = gtk_button_new();
+    add_class(b, "deskbtn");
+    if (i == desk_cur) add_class(b, "current");
+    GtkWidget *v = gtk_box_new(GTK_ORIENTATION_VERTICAL, 6);
+    GtkWidget *a = gtk_drawing_area_new();
+    gtk_widget_set_size_request(a, 150, 90);
+    add_class(a, "deskthumb");
+    g_signal_connect(a, "draw", G_CALLBACK(draw_desk_thumb), NULL);
+    gtk_container_add(GTK_CONTAINER(v), a);
     char *t = g_strdup_printf("Bureau %d", i);
-    GtkWidget *b = gtk_button_new_with_label(t);
-    add_class(b, "desk");
+    gtk_container_add(GTK_CONTAINER(v), label(t, "deskname", 0.5));
+    gtk_container_add(GTK_CONTAINER(b), v);
     char *tip = g_strdup_printf("Windows + %d · Windows + Maj + %d y envoie la fenêtre active", i, i);
     gtk_widget_set_tooltip_text(b, tip);
     g_signal_connect(b, "clicked", G_CALLBACK(on_desk), GINT_TO_POINTER(i));
-    gtk_container_add(GTK_CONTAINER(desks), b);
+    gtk_container_add(GTK_CONTAINER(desks_box), b);
     g_free(t); g_free(tip);
   }
-  gtk_container_add(GTK_CONTAINER(v), desks);
+  if (desk_count < 4) {
+    GtkWidget *add = gtk_button_new();
+    add_class(add, "deskadd");
+    gtk_widget_set_valign(add, GTK_ALIGN_START);
+    gtk_widget_set_tooltip_text(add, "Nouveau bureau");
+    gtk_container_add(GTK_CONTAINER(add), icon_new("plus", R_ON_PRI_C, 22)->img);
+    g_signal_connect(add, "clicked", G_CALLBACK(on_desk_add), NULL);
+    gtk_container_add(GTK_CONTAINER(desks_box), add);
+  }
+  gtk_widget_show_all(desks_box);
+}
+
+/* Fond de la vue d'ensemble : le fond d'ecran, assombri */
+static gboolean draw_ov_bg(GtkWidget *w, cairo_t *cr, gpointer d) {
+  draw_wall(w, cr, NULL);
+  cairo_set_source_rgba(cr, 0, 0, 0, dark ? 0.45 : 0.30);
+  cairo_paint(cr);
+  return FALSE;
+}
+
+static void build_overview(void) {
+  ov_win = popup_window("lumina-overview", TRUE);
+  char *p = cfg_path("desks"), *c = read_file(p);
+  if (c) desk_count = CLAMP(atoi(c), 1, 4);
+  g_free(p); g_free(c);
+  GtkWidget *ovl = gtk_overlay_new();
+  GtkWidget *bg = gtk_drawing_area_new();
+  g_signal_connect(bg, "draw", G_CALLBACK(draw_ov_bg), NULL);
+  gtk_container_add(GTK_CONTAINER(ovl), bg);
+  GtkWidget *eb = gtk_event_box_new();
+  gtk_event_box_set_visible_window(GTK_EVENT_BOX(eb), FALSE);
+  g_signal_connect(eb, "button-press-event", G_CALLBACK(on_ov_bg), NULL);
+  GtkWidget *v = gtk_box_new(GTK_ORIENTATION_VERTICAL, 22);
+  add_class(v, "overview");
+  GtkWidget *top = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
+  add_class(top, "desks");
+  gtk_widget_set_halign(top, GTK_ALIGN_CENTER);
+  desks_box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 14);
+  gtk_container_add(GTK_CONTAINER(top), desks_box);
+  gtk_container_add(GTK_CONTAINER(v), top);
   ov_flow = gtk_flow_box_new();
   gtk_flow_box_set_selection_mode(GTK_FLOW_BOX(ov_flow), GTK_SELECTION_NONE);
   gtk_flow_box_set_homogeneous(GTK_FLOW_BOX(ov_flow), TRUE);
   gtk_flow_box_set_max_children_per_line(GTK_FLOW_BOX(ov_flow), 4);
-  gtk_flow_box_set_row_spacing(GTK_FLOW_BOX(ov_flow), 18);
-  gtk_flow_box_set_column_spacing(GTK_FLOW_BOX(ov_flow), 18);
+  gtk_flow_box_set_row_spacing(GTK_FLOW_BOX(ov_flow), 22);
+  gtk_flow_box_set_column_spacing(GTK_FLOW_BOX(ov_flow), 22);
   gtk_widget_set_halign(ov_flow, GTK_ALIGN_CENTER);
   gtk_widget_set_valign(ov_flow, GTK_ALIGN_CENTER);
   gtk_widget_set_vexpand(ov_flow, TRUE);
@@ -177,16 +252,16 @@ static void build_overview(void) {
   ov_empty = label("Aucune fenêtre ouverte", "ovempty", 0.5);
   gtk_widget_set_vexpand(ov_empty, TRUE);
   gtk_container_add(GTK_CONTAINER(v), ov_empty);
-  gtk_container_add(GTK_CONTAINER(v), label("Windows + Tab : vue d'ensemble · Windows + [ ou ] : bureau précédent ou suivant · "
-                                            "Alt + [ ou ] : écran partagé", "ovhint", 0.5));
   gtk_container_add(GTK_CONTAINER(eb), v);
-  gtk_container_add(GTK_CONTAINER(ov_win), eb);
-  gtk_widget_show_all(eb);
+  gtk_overlay_add_overlay(GTK_OVERLAY(ovl), eb);
+  gtk_container_add(GTK_CONTAINER(ov_win), ovl);
+  gtk_widget_show_all(ovl);
 }
 
 static void overview_toggle(void) {
   if (ov_win && gtk_widget_get_visible(ov_win)) { close_panels(); return; }
   fill_overview();
+  fill_desks();
   show_popup(ov_win);
 }
 
@@ -375,6 +450,171 @@ static void emoji_show(void) {
   gtk_widget_grab_focus(emoji_entry);
 }
 
+
+/* ------------------------------------------------------------------ */
+/* Calendrier (clic sur l'heure)                                        */
+/* ------------------------------------------------------------------ */
+static GtkWidget *cal_win, *cal, *cal_today_l;
+
+static void cal_to_today(void) {
+  GDateTime *n = g_date_time_new_now_local();
+  gtk_calendar_select_month(GTK_CALENDAR(cal), g_date_time_get_month(n) - 1, g_date_time_get_year(n));
+  gtk_calendar_select_day(GTK_CALENDAR(cal), g_date_time_get_day_of_month(n));
+  gtk_calendar_clear_marks(GTK_CALENDAR(cal));
+  gtk_calendar_mark_day(GTK_CALENDAR(cal), g_date_time_get_day_of_month(n));
+  char *t = g_strdup_printf("%s %d %s %d", DAY_L[g_date_time_get_day_of_week(n)], g_date_time_get_day_of_month(n),
+                            MON_L[g_date_time_get_month(n)], g_date_time_get_year(n));
+  t[0] = g_ascii_toupper(t[0]);
+  gtk_label_set_text(GTK_LABEL(cal_today_l), t);
+  g_free(t); g_date_time_unref(n);
+}
+static void on_cal_today(GtkButton *b, gpointer d) { cal_to_today(); }
+static void on_cal_agenda(GtkButton *b, gpointer d) {
+  close_panels();
+  GDesktopAppInfo *a = g_desktop_app_info_new("lumina-agenda.desktop");
+  if (a) { launch(G_APP_INFO(a)); g_object_unref(a); }
+}
+
+static void build_calendar(void) {
+  cal_win = layer_window(GTK_LAYER_SHELL_LAYER_OVERLAY, "lumina-calendar");
+  gtk_layer_set_monitor(GTK_WINDOW(cal_win), main_monitor());
+  anchor(cal_win, TRUE, FALSE, TRUE, FALSE);
+  gtk_layer_set_margin(GTK_WINDOW(cal_win), GTK_LAYER_SHELL_EDGE_LEFT, 40);
+  gtk_layer_set_keyboard_mode(GTK_WINDOW(cal_win), GTK_LAYER_SHELL_KEYBOARD_MODE_ON_DEMAND);
+  g_signal_connect(cal_win, "key-press-event", G_CALLBACK(on_popup_key), NULL);
+  GtkWidget *v = gtk_box_new(GTK_ORIENTATION_VERTICAL, 8);
+  add_class(v, "panel"); add_class(v, "attached");
+  gtk_widget_set_size_request(v, 330, -1);
+  GtkWidget *h = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+  cal_today_l = label("", "caltitle", 0);
+  gtk_widget_set_hexpand(cal_today_l, TRUE);
+  gtk_container_add(GTK_CONTAINER(h), cal_today_l);
+  GtkWidget *tb = gtk_button_new_with_label("Aujourd'hui");
+  add_class(tb, "textbtn");
+  g_signal_connect(tb, "clicked", G_CALLBACK(on_cal_today), NULL);
+  gtk_container_add(GTK_CONTAINER(h), tb);
+  gtk_container_add(GTK_CONTAINER(v), h);
+  cal = gtk_calendar_new();
+  gtk_calendar_set_display_options(GTK_CALENDAR(cal), GTK_CALENDAR_SHOW_HEADING | GTK_CALENDAR_SHOW_DAY_NAMES);
+  gtk_container_add(GTK_CONTAINER(v), cal);
+  GtkWidget *ab = gtk_button_new_with_label("Ouvrir Google Agenda");
+  add_class(ab, "textbtn");
+  gtk_widget_set_halign(ab, GTK_ALIGN_END);
+  g_signal_connect(ab, "clicked", G_CALLBACK(on_cal_agenda), NULL);
+  gtk_container_add(GTK_CONTAINER(v), ab);
+  gtk_container_add(GTK_CONTAINER(cal_win), v);
+  gtk_widget_show_all(v);
+}
+
+static void calendar_toggle(void) {
+  if (cal_win && gtk_widget_get_visible(cal_win)) { close_panels(); return; }
+  close_panels();
+  cal_to_today();
+  gtk_widget_show(scrim);
+  gtk_widget_show(cal_win);
+}
+
+/* ------------------------------------------------------------------ */
+/* Lecture en cours (MPRIS) : titre et commandes dans les reglages      */
+/* rapides, comme ChromeOS (Chromium, YouTube, Galerie...)              */
+/* ------------------------------------------------------------------ */
+static GtkWidget *media_box, *media_title, *media_artist;
+static Icon *media_play_ic;
+static char *media_bus;
+
+static char *find_player(GDBusConnection *c) {
+  GVariant *r = g_dbus_connection_call_sync(c, "org.freedesktop.DBus", "/org/freedesktop/DBus", "org.freedesktop.DBus",
+                                            "ListNames", NULL, G_VARIANT_TYPE("(as)"), G_DBUS_CALL_FLAGS_NONE, 300, NULL, NULL);
+  char *found = NULL;
+  if (r) {
+    GVariantIter *it; const char *n;
+    g_variant_get(r, "(as)", &it);
+    while (g_variant_iter_loop(it, "&s", &n))
+      if (!found && g_str_has_prefix(n, "org.mpris.MediaPlayer2.") && !strstr(n, "mpris-proxy")) found = g_strdup(n);
+    g_variant_iter_free(it); g_variant_unref(r);
+  }
+  return found;
+}
+
+static void refresh_media(void);
+static void media_call(const char *method) {
+  if (!media_bus) return;
+  GDBusConnection *c = g_bus_get_sync(G_BUS_TYPE_SESSION, NULL, NULL);
+  if (!c) return;
+  g_dbus_connection_call(c, media_bus, "/org/mpris/MediaPlayer2", "org.mpris.MediaPlayer2.Player", method,
+                         NULL, NULL, G_DBUS_CALL_FLAGS_NONE, 1000, NULL, NULL, NULL);
+  g_object_unref(c);
+}
+static gboolean media_refresh_cb(gpointer d) { refresh_media(); return G_SOURCE_REMOVE; }
+static void on_media_btn(GtkButton *b, gpointer m) { media_call(m); g_timeout_add(400, media_refresh_cb, NULL); }
+
+static void refresh_media(void) {
+  g_clear_pointer(&media_bus, g_free);
+  GDBusConnection *c = g_bus_get_sync(G_BUS_TYPE_SESSION, NULL, NULL);
+  if (c) media_bus = find_player(c);
+  gboolean show = FALSE;
+  if (c && media_bus) {
+    GVariant *r = g_dbus_connection_call_sync(c, media_bus, "/org/mpris/MediaPlayer2", "org.freedesktop.DBus.Properties",
+                                              "GetAll", g_variant_new("(s)", "org.mpris.MediaPlayer2.Player"),
+                                              G_VARIANT_TYPE("(a{sv})"), G_DBUS_CALL_FLAGS_NONE, 500, NULL, NULL);
+    if (r) {
+      GVariant *props = g_variant_get_child_value(r, 0), *meta = g_variant_lookup_value(props, "Metadata", NULL);
+      const char *status = "";
+      g_variant_lookup(props, "PlaybackStatus", "&s", &status);
+      const char *title = NULL;
+      if (meta) g_variant_lookup(meta, "xesam:title", "&s", &title);
+      GVariant *art = meta ? g_variant_lookup_value(meta, "xesam:artist", G_VARIANT_TYPE("as")) : NULL;
+      const char *artist = NULL;
+      if (art && g_variant_n_children(art)) g_variant_get_child(art, 0, "&s", &artist);
+      if (title && *title && strcmp(status, "Stopped")) {
+        show = TRUE;
+        gtk_label_set_text(GTK_LABEL(media_title), title);
+        gtk_label_set_text(GTK_LABEL(media_artist), artist && *artist ? artist : "");
+        icon_set(media_play_ic, !strcmp(status, "Playing") ? "pause" : "play", R_ON);
+      }
+      if (art) g_variant_unref(art);
+      if (meta) g_variant_unref(meta);
+      g_variant_unref(props); g_variant_unref(r);
+    }
+  }
+  if (c) g_object_unref(c);
+  gtk_widget_set_visible(media_box, show);
+}
+
+static GtkWidget *media_button(const char *glyph, const char *method, Icon **ic) {
+  GtkWidget *b = gtk_button_new();
+  add_class(b, "mbtn");
+  Icon *i = icon_new(glyph, R_ON, 20);
+  gtk_container_add(GTK_CONTAINER(b), i->img);
+  g_signal_connect(b, "clicked", G_CALLBACK(on_media_btn), (gpointer)method);
+  if (ic) *ic = i;
+  return b;
+}
+
+static void build_media(GtkWidget *panel) {
+  media_box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+  add_class(media_box, "media");
+  gtk_container_add(GTK_CONTAINER(media_box), icon_new("music", R_PRI, 22)->img);
+  GtkWidget *t = gtk_box_new(GTK_ORIENTATION_VERTICAL, 1);
+  gtk_widget_set_hexpand(t, TRUE);
+  gtk_widget_set_valign(t, GTK_ALIGN_CENTER);
+  media_title = label("", "mtitle", 0);
+  gtk_label_set_ellipsize(GTK_LABEL(media_title), PANGO_ELLIPSIZE_END);
+  gtk_label_set_max_width_chars(GTK_LABEL(media_title), 28);
+  media_artist = label("", "martist", 0);
+  gtk_label_set_ellipsize(GTK_LABEL(media_artist), PANGO_ELLIPSIZE_END);
+  gtk_container_add(GTK_CONTAINER(t), media_title);
+  gtk_container_add(GTK_CONTAINER(t), media_artist);
+  gtk_container_add(GTK_CONTAINER(media_box), t);
+  gtk_container_add(GTK_CONTAINER(media_box), media_button("prev", "Previous", NULL));
+  gtk_container_add(GTK_CONTAINER(media_box), media_button("play", "PlayPause", &media_play_ic));
+  gtk_container_add(GTK_CONTAINER(media_box), media_button("next", "Next", NULL));
+  gtk_widget_show_all(media_box);
+  gtk_widget_set_no_show_all(media_box, TRUE);
+  gtk_widget_hide(media_box);
+  gtk_container_add(GTK_CONTAINER(panel), media_box);
+}
+
 /* ------------------------------------------------------------------ */
 /* Reglages rapides : nouvelles tuiles et notifications                 */
 /* ------------------------------------------------------------------ */
@@ -402,7 +642,11 @@ static void apply_night(gboolean on) {
   }
 }
 
+static void refresh_media(void);
+static void refresh_bt(void);
 static void refresh_extras_qs(void) {
+  refresh_bt();
+  if (media_box) refresh_media();
   gboolean d = cfg_flag("dnd"), n = night_on(), r = recording();
   set_class(dnd_tile, "on", d);
   gtk_label_set_text(GTK_LABEL(dnd_sub), d ? "Activé" : "Désactivé");
@@ -447,6 +691,19 @@ static void on_notif_clear(GtkButton *b, gpointer d) {
   refresh_qs();
 }
 
+/* Clic sur une notification de l'historique : ouvre ce qui la concerne */
+static void on_notif_click(GtkButton *b, gpointer d) {
+  const char *app = d;
+  close_panels();
+  const char *pics = g_get_user_special_dir(G_USER_DIRECTORY_PICTURES), *vids = g_get_user_special_dir(G_USER_DIRECTORY_VIDEOS);
+  char *path = NULL;
+  if (!g_strcmp0(app, "Capture d'écran")) path = g_build_filename(pics ? pics : g_get_home_dir(), "Captures d'écran", NULL);
+  else if (!g_strcmp0(app, "Enregistrement de l'écran")) path = g_build_filename(vids ? vids : g_get_home_dir(), "Enregistrements d'écran", NULL);
+  if (path) { const char *argv[] = {"lumina-files", path, NULL}; spawn_async(argv); g_free(path); return; }
+  if (g_strstr_len(app, -1, "Chromium") || g_strstr_len(app, -1, "chromium")) { const char *argv[] = {"lumina-browser", NULL}; spawn_async(argv); return; }
+  if (!g_strcmp0(app, "LuminaOS")) { const char *argv[] = {"lumina-settings", "stockage", NULL}; spawn_async(argv); }
+}
+
 static void fill_notifs(void) {
   GList *kids = gtk_container_get_children(GTK_CONTAINER(notif_box));
   for (GList *l = kids; l; l = l->next) gtk_widget_destroy(l->data);
@@ -468,8 +725,11 @@ static void fill_notifs(void) {
       if (id <= notif_cleared) continue;
       if (id > maxid) maxid = id;
       if (n >= 4) continue;
+      GtkWidget *btn = gtk_button_new();
+      add_class(btn, "notif");
+      g_signal_connect_data(btn, "clicked", G_CALLBACK(on_notif_click), g_strdup(app), (GClosureNotify)(void (*)(void))g_free, 0);
       GtkWidget *row = gtk_box_new(GTK_ORIENTATION_VERTICAL, 1);
-      add_class(row, "notif");
+      gtk_container_add(GTK_CONTAINER(btn), row);
       GtkWidget *a = label(*app ? app : "Notification", "napp", 0);
       gtk_container_add(GTK_CONTAINER(row), a);
       GtkWidget *s = label(sum, "nsum", 0);
@@ -480,7 +740,7 @@ static void fill_notifs(void) {
         gtk_label_set_ellipsize(GTK_LABEL(bl), PANGO_ELLIPSIZE_END);
         gtk_container_add(GTK_CONTAINER(row), bl);
       }
-      gtk_container_add(GTK_CONTAINER(notif_box), row);
+      gtk_container_add(GTK_CONTAINER(notif_box), btn);
       n++;
     }
     g_variant_iter_free(it); g_variant_unref(r);
@@ -491,6 +751,40 @@ static void fill_notifs(void) {
   gtk_widget_set_visible(clr, n > 0);
   if (!n) gtk_container_add(GTK_CONTAINER(notif_box), label("Aucune notification", "hint", 0));
   gtk_widget_show_all(notif_box);
+}
+
+/* Bluetooth : tuile seulement si la machine a un adaptateur */
+static GtkWidget *bt_tile, *bt_sub, *mag_tile;
+static gboolean bt_powered(void) {
+  const char *argv[] = {"bluetoothctl", "show", NULL};
+  char *o = run_argv(argv, NULL);
+  gboolean on = o && strstr(o, "Powered: yes");
+  g_free(o);
+  return on;
+}
+static void refresh_bt(void) {
+  if (!bt_tile) return;
+  gboolean on = bt_powered();
+  set_class(bt_tile, "on", on);
+  gtk_label_set_text(GTK_LABEL(bt_sub), on ? "Activé" : "Désactivé");
+}
+static gboolean bt_refresh_cb(gpointer d) { refresh_bt(); return G_SOURCE_REMOVE; }
+static void on_bt_tile(GtkButton *b, gpointer d) {
+  const char *argv[] = {"bluetoothctl", "power", bt_powered() ? "off" : "on", NULL};
+  spawn_async(argv);
+  g_timeout_add(900, bt_refresh_cb, NULL);
+}
+static gboolean on_bt_press(GtkWidget *w, GdkEventButton *e, gpointer d) {
+  if (e->button != GDK_BUTTON_SECONDARY) return FALSE;
+  close_panels();
+  const char *argv[] = {"lumina-settings", "bluetooth", NULL};
+  spawn_async(argv);
+  return TRUE;
+}
+static void on_mag_tile(GtkButton *b, gpointer d) {
+  close_panels();
+  char *argv[] = {"wtype", "-M", "logo", "-M", "ctrl", "m", "-m", "ctrl", "-m", "logo", NULL};
+  spawn_later(200, g_strdupv(argv));
 }
 
 static void extras_qs(GtkWidget *panel, GtkWidget *grid) {
@@ -508,9 +802,25 @@ static void extras_qs(GtkWidget *panel, GtkWidget *grid) {
   gtk_grid_attach(GTK_GRID(grid), night_tile, 1, 1, 1, 1);
   gtk_grid_attach(GTK_GRID(grid), cap, 0, 2, 1, 1);
   gtk_grid_attach(GTK_GRID(grid), rec_tile, 1, 2, 1, 1);
+  GDir *bd = g_dir_open("/sys/class/bluetooth", 0, NULL);
+  gboolean has_bt = bd && g_dir_read_name(bd);
+  if (bd) g_dir_close(bd);
+  if (has_bt) {
+    bt_tile = tile("bt", "Bluetooth", &bt_sub, NULL);
+    gtk_widget_set_tooltip_text(bt_tile, "Clic droit : appareils Bluetooth");
+    g_signal_connect(bt_tile, "clicked", G_CALLBACK(on_bt_tile), NULL);
+    g_signal_connect(bt_tile, "button-press-event", G_CALLBACK(on_bt_press), NULL);
+    gtk_grid_attach(GTK_GRID(grid), bt_tile, 0, 3, 1, 1);
+  }
+  GtkWidget *magsub = NULL;
+  mag_tile = tile("zoom", "Loupe", &magsub, NULL);
+  gtk_label_set_text(GTK_LABEL(magsub), "Windows + Ctrl + M");
+  g_signal_connect(mag_tile, "clicked", G_CALLBACK(on_mag_tile), NULL);
+  gtk_grid_attach(GTK_GRID(grid), mag_tile, has_bt ? 1 : 0, 3, 1, 1);
   gtk_grid_set_row_spacing(GTK_GRID(grid), 8);
 
-  /* Notifications, sous les tuiles */
+  /* Lecture en cours, puis notifications, sous les tuiles */
+  build_media(panel);
   GtkWidget *nv = gtk_box_new(GTK_ORIENTATION_VERTICAL, 4);
   add_class(nv, "notifs");
   notif_head = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
@@ -544,10 +854,10 @@ static void on_overview_btn(GtkButton *b, gpointer d) { overview_toggle(); }
    un enregistrement de l'ecran. */
 static void extras_bar(GtkWidget *h) {
   GtkWidget *ob = gtk_button_new();
-  add_class(ob, "launch");
+  add_class(ob, "tray");
   gtk_widget_set_valign(ob, GTK_ALIGN_CENTER);
   gtk_widget_set_tooltip_text(ob, "Fenêtres et bureaux (Windows + Tab)");
-  gtk_container_add(GTK_CONTAINER(ob), icon_new("overview", R_ON, 15)->img);
+  gtk_container_add(GTK_CONTAINER(ob), icon_new("overview", R_BAR, 15)->img);
   g_signal_connect(ob, "clicked", G_CALLBACK(on_overview_btn), NULL);
   gtk_container_add(GTK_CONTAINER(h), ob);
 }
@@ -905,6 +1215,118 @@ static void extras_shelf(GtkWidget *box) {
   apply_shelf_layout();
 }
 
+
+/* ------------------------------------------------------------------ */
+/* Selecteur de fichiers : portail org.freedesktop.portal.FileChooser   */
+/* Chromium (« Choisir un fichier » sur un site) et les applis GTK      */
+/* demandent un fichier ; c'est l'appli Fichiers qui s'ouvre, en mode   */
+/* « choisir », comme sur ChromeOS.                                     */
+/* ------------------------------------------------------------------ */
+static const char *FC_XML =
+  "<node><interface name='org.freedesktop.portal.FileChooser'>"
+  "<method name='OpenFile'><arg type='s' direction='in'/><arg type='s' direction='in'/><arg type='a{sv}' direction='in'/>"
+  "<arg type='o' direction='out'/></method>"
+  "<method name='SaveFile'><arg type='s' direction='in'/><arg type='s' direction='in'/><arg type='a{sv}' direction='in'/>"
+  "<arg type='o' direction='out'/></method>"
+  "<method name='SaveFiles'><arg type='s' direction='in'/><arg type='s' direction='in'/><arg type='a{sv}' direction='in'/>"
+  "<arg type='o' direction='out'/></method>"
+  "<property name='version' type='u' access='read'/>"
+  "</interface></node>";
+
+typedef struct { GDBusConnection *c; char *path; char *sender; gboolean save_files; } FcReq;
+
+static void fc_done(GObject *o, GAsyncResult *res, gpointer d) {
+  FcReq *r = d;
+  char *out = NULL;
+  gboolean ok = g_subprocess_communicate_utf8_finish(G_SUBPROCESS(o), res, &out, NULL, NULL) &&
+                g_subprocess_get_if_exited(G_SUBPROCESS(o)) && g_subprocess_get_exit_status(G_SUBPROCESS(o)) == 0;
+  GVariantBuilder uris, results;
+  g_variant_builder_init(&uris, G_VARIANT_TYPE("as"));
+  int n = 0;
+  if (ok && out) {
+    char **l = g_strsplit(out, "\n", -1);
+    for (char **i = l; *i; i++) if (**i) { g_variant_builder_add(&uris, "s", *i); n++; }
+    g_strfreev(l);
+  }
+  g_variant_builder_init(&results, G_VARIANT_TYPE("a{sv}"));
+  g_variant_builder_add(&results, "{sv}", "uris", g_variant_builder_end(&uris));
+  g_dbus_connection_emit_signal(r->c, r->sender, r->path, "org.freedesktop.portal.Request", "Response",
+                                g_variant_new("(u@a{sv})", ok && n ? 0u : 1u, g_variant_builder_end(&results)), NULL);
+  g_free(out); g_object_unref(o);
+  g_free(r->path); g_free(r->sender); g_free(r);
+}
+
+static void fc_call(GDBusConnection *c, const char *sender, const char *path, const char *iface,
+                    const char *method, GVariant *params, GDBusMethodInvocation *inv, gpointer d) {
+  const char *parent, *title;
+  GVariant *opts;
+  g_variant_get(params, "(&s&s@a{sv})", &parent, &title, &opts);
+  /* Chemin de la requete, tel que le client l'a calcule (handle_token) */
+  const char *token = NULL;
+  g_variant_lookup(opts, "handle_token", "&s", &token);
+  char *snd = g_strdup(sender + 1);
+  g_strdelimit(snd, ".", '_');
+  char *rpath = token ? g_strdup_printf("/org/freedesktop/portal/desktop/request/%s/%s", snd, token)
+                      : g_strdup_printf("/org/freedesktop/portal/desktop/request/%s/lumina%u", snd, g_random_int());
+  g_free(snd);
+  GPtrArray *argv = g_ptr_array_new_with_free_func(g_free);
+  g_ptr_array_add(argv, g_strdup("lumina-files"));
+  g_ptr_array_add(argv, g_strdup("--pick"));
+  if (title && *title) { g_ptr_array_add(argv, g_strdup("--title")); g_ptr_array_add(argv, g_strdup(title)); }
+  gboolean b = FALSE;
+  if (g_variant_lookup(opts, "multiple", "b", &b) && b) g_ptr_array_add(argv, g_strdup("--multiple"));
+  b = FALSE;
+  if (g_variant_lookup(opts, "directory", "b", &b) && b) g_ptr_array_add(argv, g_strdup("--directory"));
+  if (!strcmp(method, "SaveFile")) {
+    const char *name = NULL;
+    g_variant_lookup(opts, "current_name", "&s", &name);
+    g_ptr_array_add(argv, g_strdup("--save"));
+    g_ptr_array_add(argv, g_strdup(name ? name : "Sans titre"));
+  } else if (!strcmp(method, "SaveFiles")) {
+    g_ptr_array_add(argv, g_strdup("--directory"));
+  }
+  GVariant *folder = g_variant_lookup_value(opts, "current_folder", G_VARIANT_TYPE_BYTESTRING);
+  if (folder) { g_ptr_array_add(argv, g_strdup("--folder")); g_ptr_array_add(argv, g_strdup(g_variant_get_bytestring(folder))); g_variant_unref(folder); }
+  /* Filtres : on transmet les types MIME et motifs du premier filtre */
+  GVariant *filters = g_variant_lookup_value(opts, "filters", G_VARIANT_TYPE("a(sa(us))"));
+  if (filters) {
+    GVariant *cur_f = g_variant_lookup_value(opts, "current_filter", G_VARIANT_TYPE("(sa(us))"));
+    GVariant *f = cur_f ? cur_f : (g_variant_n_children(filters) ? g_variant_get_child_value(filters, 0) : NULL);
+    if (f) {
+      GVariantIter *it; const char *fname; guint kind; const char *pat;
+      g_variant_get(f, "(&sa(us))", &fname, &it);
+      GString *spec = g_string_new(NULL);
+      while (g_variant_iter_loop(it, "(u&s)", &kind, &pat)) { if (spec->len) g_string_append_c(spec, ';'); g_string_append(spec, pat); }
+      g_variant_iter_free(it);
+      if (spec->len && strcmp(spec->str, "*") && strcmp(spec->str, "*.*")) {
+        g_ptr_array_add(argv, g_strdup("--filter")); g_ptr_array_add(argv, g_string_free(spec, FALSE));
+      } else g_string_free(spec, TRUE);
+      g_variant_unref(f);
+    }
+    g_variant_unref(filters);
+  }
+  g_ptr_array_add(argv, NULL);
+  GSubprocess *sp = g_subprocess_newv((const char *const *)argv->pdata, G_SUBPROCESS_FLAGS_STDOUT_PIPE, NULL);
+  g_ptr_array_free(argv, TRUE);
+  g_variant_unref(opts);
+  g_dbus_method_invocation_return_value(inv, g_variant_new("(o)", rpath));
+  if (!sp) { g_free(rpath); return; }
+  FcReq *r = g_new0(FcReq, 1);
+  r->c = c; r->path = rpath; r->sender = g_strdup(sender);
+  g_subprocess_communicate_utf8_async(sp, NULL, NULL, fc_done, r);
+}
+static GVariant *fc_prop(GDBusConnection *c, const char *sender, const char *path, const char *iface,
+                         const char *prop, GError **err, gpointer d) {
+  return g_variant_new_uint32(3);
+}
+static const GDBusInterfaceVTable fc_vtable = { fc_call, fc_prop, NULL };
+
+static void register_filechooser(GDBusConnection *c) {
+  GDBusNodeInfo *info = g_dbus_node_info_new_for_xml(FC_XML, NULL);
+  g_dbus_connection_register_object(c, "/org/freedesktop/portal/desktop", info->interfaces[0], &fc_vtable, NULL, NULL, NULL);
+  g_dbus_node_info_unref(info);
+}
+
 /* ------------------------------------------------------------------ */
 /* Actions a distance                                                   */
 /* ------------------------------------------------------------------ */
@@ -923,6 +1345,14 @@ static void shell_call(GDBusConnection *c, const char *sender, const char *path,
   else if (!strcmp(what, "launcher")) toggle_panel(drawer);
   else if (!strcmp(what, "quick-settings")) toggle_panel(qs);
   else if (!strcmp(what, "refresh")) { refresh_extras_qs(); schedule_shelf(); }
+  /* Raccourcis de bureau de labwc : on suit le bureau affiche */
+  else if (g_str_has_prefix(what, "at-desk-")) {
+    const char *n = what + 8;
+    if (!strcmp(n, "prev")) desk_cur = MAX(1, desk_cur - 1);
+    else if (!strcmp(n, "next")) desk_cur = MIN(4, desk_cur + 1);
+    else desk_cur = CLAMP(atoi(n), 1, 4);
+    if (desk_cur > desk_count) { desk_count = desk_cur; save_desks(); }
+  }
   g_dbus_method_invocation_return_value(inv, NULL);
 }
 static const GDBusInterfaceVTable shell_vtable = { shell_call, NULL, NULL };
@@ -947,9 +1377,11 @@ static int action_client(const char *what) {
 }
 
 static void extras_init(void) {
+  desk_cur = 1;
   build_overview();
   build_clip();
   build_emoji();
+  build_calendar();
   g_bus_own_name(G_BUS_TYPE_SESSION, "org.luminaos.Shell", G_BUS_NAME_OWNER_FLAGS_NONE,
                  on_shell_bus, NULL, NULL, NULL, NULL);
   /* Etats retrouves a l'ouverture de session */

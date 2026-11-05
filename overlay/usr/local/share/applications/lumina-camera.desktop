@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Caméra
+Comment=Photos et vidéos avec la webcam
+Exec=lumina-camera
+StartupWMClass=lumina-camera
+X-Lumina-Glyph=camera
+X-Lumina-Color=#5f6368
+X-Lumina-Kind=Système

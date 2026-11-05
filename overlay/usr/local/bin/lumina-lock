@@ -4,4 +4,7 @@
 [ -r /var/lib/lumina/config/account.conf ] && . /var/lib/lumina/config/account.conf
 [ "${HAS_PASSWORD:-0}" = 1 ] || exit 0
 pgrep -x swaylock >/dev/null && exit 0
+# Fond d'ecran de l'utilisateur derriere l'ecran de verrouillage
+W="$HOME/.config/lumina/wallpaper"
+if [ -s "$W" ]; then exec swaylock -f -i "$W" -s fill; fi
 exec swaylock -f

@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Texte
+Comment=Éditeur de texte
+Exec=lumina-text %F
+MimeType=text/plain;text/markdown;text/x-csrc;text/x-chdr;text/x-python;text/x-shellscript;application/x-shellscript;application/json;application/xml;text/css;text/csv;text/x-log;application/x-yaml;text/x-makefile;
+StartupWMClass=lumina-text
+X-Lumina-Glyph=text
+X-Lumina-Color=#1a73e8
+X-Lumina-Kind=Système
