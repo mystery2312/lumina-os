@@ -148,3 +148,7 @@ gstreamer1.0-libav
 xdg-utils
 # Archives (zip, tar, 7z) dans Fichiers : extraire, compresser
 libarchive-tools
+# Gestes du pave tactile (lumina-gestures)
+libinput-tools
+# Ecran de connexion (comptes multiples, invite)
+greetd

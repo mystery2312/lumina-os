@@ -1,0 +1,29 @@
+#!/bin/sh
+# Gestes du pave tactile (labwc n'en gere pas) : lus dans le flux libinput.
+#   3 doigts vers le haut  : vue d'ensemble des fenetres et des bureaux
+#   3 doigts vers le bas   : la refermer
+#   4 doigts gauche/droite : bureau precedent / suivant
+# L'utilisateur est dans le groupe "input" : pas besoin d'etre root.
+command -v libinput >/dev/null || exit 0
+libinput list-devices 2>/dev/null | grep -q "Capabilities:.*gesture" || exit 0
+exec libinput debug-events 2>/dev/null | awk '
+  /GESTURE_SWIPE_BEGIN/ { dx = 0; dy = 0; n = $NF + 0; next }
+  # (le temps "+1.234s" contient aussi un point : le couple dx/dy suit le nombre de doigts)
+  /GESTURE_SWIPE_UPDATE/ {
+    # ... +1.240s  3  2.65/-4.50 ( 2.10/-3.80 unaccelerated) : 1er couple dx/dy
+    if (match($0, /-?[0-9.]+\/ *-?[0-9.]+/)) {
+      d = substr($0, RSTART, RLENGTH); gsub(/ /, "", d); split(d, v, "/"); dx += v[1]; dy += v[2]
+    }
+    next
+  }
+  /GESTURE_SWIPE_END/ {
+    if ($0 ~ /cancelled/) next
+    adx = dx < 0 ? -dx : dx; ady = dy < 0 ? -dy : dy
+    cmd = ""
+    if (n == 3 && ady > adx && dy < -60) cmd = "lumina-shell --action overview"
+    else if (n == 3 && ady > adx && dy > 60) cmd = "lumina-shell --action close"
+    else if (n == 4 && adx > ady && dx > 80) cmd = "lumina-shell --action desk-prev"
+    else if (n == 4 && adx > ady && dx < -80) cmd = "lumina-shell --action desk-next"
+    if (cmd != "") { system(cmd " >/dev/null 2>&1 &") }
+    fflush()
+  }'

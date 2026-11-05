@@ -1,0 +1,11 @@
+#!/bin/sh
+# Ecran de connexion (lance par greetd, compte _greetd) : un labwc minimal
+# qui n'affiche que lumina-greeter, et s'arrete avec lui.
+[ -r /var/lib/lumina/config/greeter.conf ] && . /var/lib/lumina/config/greeter.conf
+export XKB_DEFAULT_LAYOUT="${LUMINA_KEYMAP:-fr}"
+export XKB_DEFAULT_VARIANT="${LUMINA_KEYMAP_VARIANT:-}"
+case "${LUMINA_LANG:-fr}" in fr*) export LANG=fr_FR.UTF-8 ;; *) export LANG=en_US.UTF-8 ;; esac
+export GDK_BACKEND=wayland XDG_CURRENT_DESKTOP=lumina:wlroots
+# Rendu logiciel : fiable partout, et l'ecran de connexion est simple
+export WLR_RENDERER=pixman
+exec labwc -C /usr/share/lumina/greeter -S /usr/local/bin/lumina-greeter

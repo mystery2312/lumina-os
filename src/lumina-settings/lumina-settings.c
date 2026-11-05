@@ -15,6 +15,7 @@
 #include "lumina-sys.h"
 #include <string.h>
 #include <stdlib.h>
+#include <unistd.h>
 #include <sys/statvfs.h>
 #include <glib/gstdio.h>
 #include <math.h>
@@ -840,10 +841,96 @@ static void on_save_pw(GtkWidget *w, gpointer d) {
   if (*a && strlen(a) < 4) { say(pw_msg, "Au moins 4 caractères.", TRUE); return; }
   if (strcmp(a, b)) { say(pw_msg, "Les deux mots de passe ne correspondent pas.", TRUE); return; }
   char *in = g_strdup_printf("%s\n%s\n", old_e ? gtk_entry_get_text(GTK_ENTRY(old_e)) : "", a);
-  const char *argv[] = {"pkexec", "/usr/local/sbin/lumina-account", "set-password", NULL};
+  gboolean owner = getuid() == 1000;
+  const char *argv[] = {"pkexec", owner ? "/usr/local/sbin/lumina-account" : "/usr/local/sbin/lumina-users", "set-password", NULL};
   busy(w, "Enregistrement…");
   run_root_async(argv, in, pw_done, w);
   g_free(in);
+}
+
+
+/* ------------------------------------------------------------------ */
+/* Personnes (comptes) et mode invite : geres par le proprietaire       */
+/* ------------------------------------------------------------------ */
+static GtkWidget *people_grp, *people_msg, *guest_sw;
+static gboolean guest_lock;
+static void fill_people(void);
+
+static void people_done(gboolean ok, const char *err, gpointer m) {
+  say(people_msg, ok ? m : err, !ok);
+  fill_people();
+}
+static void on_person_remove(GtkWidget *w, gpointer user) {
+  GtkWidget *dlg = gtk_message_dialog_new(GTK_WINDOW(win), GTK_DIALOG_MODAL, GTK_MESSAGE_WARNING, GTK_BUTTONS_NONE,
+                                          "Retirer ce compte ?");
+  gtk_message_dialog_format_secondary_text(GTK_MESSAGE_DIALOG(dlg), "Ses fichiers, réglages et applis seront effacés de ce PC.");
+  gtk_dialog_add_buttons(GTK_DIALOG(dlg), "Annuler", GTK_RESPONSE_CANCEL, "Retirer", GTK_RESPONSE_ACCEPT, NULL);
+  int r = gtk_dialog_run(GTK_DIALOG(dlg));
+  gtk_widget_destroy(dlg);
+  if (r != GTK_RESPONSE_ACCEPT) return;
+  const char *argv[] = {"pkexec", "/usr/local/sbin/lumina-users", "remove", user, NULL};
+  run_root_async(argv, NULL, people_done, "Compte retiré.");
+}
+static void on_person_add(GtkWidget *w, gpointer d) {
+  GtkWidget *dlg = gtk_dialog_new_with_buttons("Ajouter une personne", GTK_WINDOW(win), GTK_DIALOG_MODAL,
+                                               "Annuler", GTK_RESPONSE_CANCEL, "Ajouter", GTK_RESPONSE_ACCEPT, NULL);
+  GtkWidget *box = gtk_dialog_get_content_area(GTK_DIALOG(dlg));
+  gtk_box_set_spacing(GTK_BOX(box), 10);
+  gtk_container_set_border_width(GTK_CONTAINER(box), 18);
+  gtk_container_add(GTK_CONTAINER(box), desc("Elle aura son propre bureau, ses fichiers, ses applis et son navigateur, "
+                                              "et se connectera depuis l'écran de connexion."));
+  GtkWidget *n = field("Prénom", FALSE), *p1 = field("Mot de passe ou code PIN (facultatif)", TRUE);
+  gtk_container_add(GTK_CONTAINER(box), n);
+  gtk_container_add(GTK_CONTAINER(box), p1);
+  gtk_widget_show_all(box);
+  if (gtk_dialog_run(GTK_DIALOG(dlg)) == GTK_RESPONSE_ACCEPT && *gtk_entry_get_text(GTK_ENTRY(n))) {
+    const char *pw = gtk_entry_get_text(GTK_ENTRY(p1));
+    if (*pw && strlen(pw) < 4) say(people_msg, "Mot de passe : au moins 4 caractères.", TRUE);
+    else {
+      char *in = g_strdup_printf("%s\n", pw);
+      const char *argv[] = {"pkexec", "/usr/local/sbin/lumina-users", "add", "", gtk_entry_get_text(GTK_ENTRY(n)), NULL};
+      run_root_async(argv, in, people_done, "Compte ajouté. Il apparaît sur l'écran de connexion.");
+      g_free(in);
+    }
+  }
+  gtk_widget_destroy(dlg);
+}
+static void on_guest(GObject *o, GParamSpec *ps, gpointer d) {
+  if (guest_lock) return;
+  const char *argv[] = {"pkexec", "/usr/local/sbin/lumina-users", "guest", gtk_switch_get_active(GTK_SWITCH(o)) ? "on" : "off", NULL};
+  run_root_async(argv, NULL, people_done, "Enregistré. Effet à l'écran de connexion.");
+}
+static void fill_people(void) {
+  clear_box(people_grp);
+  const char *argv[] = {"/usr/local/sbin/lumina-users", "list", NULL};
+  char *out = run_argv(argv, NULL);
+  char **l = out ? g_strsplit(out, "\n", -1) : NULL;
+  gboolean guest = FALSE;
+  for (char **i = l; i && *i; i++) {
+    char **f = g_strsplit(*i, "\t", 3);
+    if (g_strv_length(f) == 3) {
+      if (!strcmp(f[0], "invite")) guest = TRUE;
+      else if (!strcmp(f[0], "lumina")) row(people_grp, *f[1] ? f[1] : "Vous", "Propriétaire de ce PC", NULL, NULL);
+      else row(people_grp, f[1], !strcmp(f[2], "1") ? "Avec mot de passe" : "Sans mot de passe",
+               button("Retirer", "tbtn", G_CALLBACK(on_person_remove), g_strdup(f[0])), NULL);
+    }
+    g_strfreev(f);
+  }
+  g_strfreev(l); g_free(out);
+  row(people_grp, "Ajouter une personne", "Chacun son bureau, ses fichiers et ses applis",
+      button("Ajouter", "fbtn", G_CALLBACK(on_person_add), NULL), NULL);
+  guest_sw = gtk_switch_new();
+  guest_lock = TRUE; gtk_switch_set_active(GTK_SWITCH(guest_sw), guest); guest_lock = FALSE;
+  g_signal_connect(guest_sw, "notify::active", G_CALLBACK(on_guest), NULL);
+  row(people_grp, "Mode invité", "Une session sans compte, effacée à la déconnexion", guest_sw, NULL);
+  gtk_widget_show_all(people_grp);
+}
+static void build_people(GtkWidget *p) {
+  people_grp = group(p, "Personnes sur ce PC");
+  people_msg = label("", "msg", 0);
+  gtk_widget_set_no_show_all(people_msg, TRUE);
+  gtk_container_add(GTK_CONTAINER(p), people_msg);
+  fill_people();
 }
 
 static void build_account(void) {
@@ -886,6 +973,7 @@ static void build_account(void) {
   GtkWidget *c = delay_combo("LUMINA_LOCK_DELAY", 300);
   g_signal_connect(c, "changed", G_CALLBACK(on_delay), NULL);
   row(g3, "Verrouiller après", "Sans activité. Windows + L verrouille immédiatement.", c, NULL);
+  if (getuid() == 1000) build_people(p);
 }
 
 /* ------------------------------------------------------------------ */

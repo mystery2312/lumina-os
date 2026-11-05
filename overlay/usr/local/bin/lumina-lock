@@ -1,7 +1,13 @@
 #!/bin/sh
 # Verrouille l'ecran, si le compte a un mot de passe (sans mot de passe,
 # un ecran de verrouillage ne protegerait rien).
-[ -r /var/lib/lumina/config/account.conf ] && . /var/lib/lumina/config/account.conf
+U=$(id -un)
+if [ "$U" = lumina ]; then
+  [ -r /var/lib/lumina/config/account.conf ] && . /var/lib/lumina/config/account.conf
+else
+  # Autres personnes (lumina-users) ; l'invite n'a jamais de mot de passe
+  [ -s "/var/lib/lumina/config/users/$U/hash" ] && HAS_PASSWORD=1
+fi
 [ "${HAS_PASSWORD:-0}" = 1 ] || exit 0
 pgrep -x swaylock >/dev/null && exit 0
 # Fond d'ecran de l'utilisateur derriere l'ecran de verrouillage

@@ -4,7 +4,7 @@ Description=Compte LuminaOS (nom et mot de passe conserves sur la partition d'et
 # /etc/shadow, on y remet le mot de passe a chaque demarrage.
 Wants=var-lib-lumina.mount
 After=var-lib-lumina.mount
-Before=lumina-session.service
+Before=greetd.service
 
 [Service]
 Type=oneshot

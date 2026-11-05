@@ -1,0 +1,14 @@
+<?xml version="1.0"?>
+<!-- labwc de l'ecran de connexion : aucun raccourci, aucun menu -->
+<labwc_config>
+  <core><decoration>client</decoration></core>
+  <keyboard><default /></keyboard>
+  <mouse>
+    <default />
+    <context name="Root">
+      <mousebind button="Left" action="Press" />
+      <mousebind button="Right" action="Press" />
+      <mousebind button="Middle" action="Press" />
+    </context>
+  </mouse>
+</labwc_config>

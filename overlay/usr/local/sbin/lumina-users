@@ -1,0 +1,176 @@
+#!/bin/bash
+# Comptes LuminaOS : le compte principal "lumina" (proprietaire de la
+# machine), d'autres personnes, et le mode invite. Tout est conserve sur la
+# partition d'etat et reapplique a chaque demarrage (une mise a jour
+# remplace /etc/passwd et /etc/shadow).
+#
+#   lumina-users apply                 au demarrage (lumina-account.service)
+#   lumina-users list                  une ligne par personne : nom<TAB>nom affiche<TAB>mot de passe (0/1)
+#   lumina-users add NOM "Nom affiche" via pkexec, par le proprietaire ; stdin : mot de passe
+#   lumina-users remove NOM            via pkexec, par le proprietaire ; efface ses fichiers
+#   lumina-users guest on|off          via pkexec, par le proprietaire
+#   lumina-users set-password          via pkexec, par la personne elle-meme ;
+#                                      stdin : ancien puis nouveau (vide : aucun)
+#
+# Registre : /var/lib/lumina/config/users/<nom>/{uid,name,hash}
+# Dossiers : /var/lib/lumina/homes/<nom>, montes sur /home/<nom>
+# Invite   : compte "invite", dossier en memoire (/run), vide a chaque session
+set -euo pipefail
+export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+C=/var/lib/lumina/config
+R=$C/users
+HOMES=/var/lib/lumina/homes
+GUEST=invite
+GUEST_UID=1500
+OWNER_UID=1000
+# (la liste est lue par l'ecran de connexion, sans privileges)
+if [ "$(id -u)" = 0 ]; then mkdir -p "$R" "$HOMES"; chmod 755 "$C" "$R"; chmod 711 "$HOMES"; fi
+
+caller_uid() { echo "${PKEXEC_UID:-$(id -u)}"; }
+owner_only() {
+  [ "$(caller_uid)" = "$OWNER_UID" ] || [ "$(caller_uid)" = 0 ] || { echo "Seul le propriétaire de ce PC peut gérer les comptes." >&2; exit 2; }
+}
+groups_for() { echo "video,input,render,audio,netdev,plugdev,lpadmin$(getent group bluetooth >/dev/null && echo ,bluetooth)"; }
+
+# Cree (ou recree) le compte systeme d'une personne du registre
+make_user() {
+  local u="$1" uid name
+  uid=$(cat "$R/$u/uid"); name=$(cat "$R/$u/name" 2>/dev/null || echo "$u")
+  if ! getent passwd "$u" >/dev/null; then
+    useradd -M -u "$uid" -d "/home/$u" -s /bin/bash -c "$name" -G "$(groups_for)" "$u" 2>/dev/null \
+      || useradd -M -u "$uid" -d "/home/$u" -s /bin/bash -c "$name" "$u"
+  fi
+  # Linux (conteneur sans privileges) : plages d'identifiants a elle
+  grep -q "^$u:" /etc/subuid || usermod --add-subuids "$((100000 + (uid - 1000) * 65536))-$((165535 + (uid - 1000) * 65536))" \
+    --add-subgids "$((100000 + (uid - 1000) * 65536))-$((165535 + (uid - 1000) * 65536))" "$u" 2>/dev/null || true
+  if [ -s "$R/$u/hash" ]; then usermod -p "$(cat "$R/$u/hash")" "$u"; else passwd -d "$u" >/dev/null; fi
+  local d="$HOMES/$u"
+  if [ ! -d "$d" ]; then cp -a /etc/skel "$d"; chown -R "$u:$u" "$d"; chmod 700 "$d"; fi
+  install -d -m 755 /home
+  [ -d "/home/$u" ] || install -d -o "$u" -g "$u" -m 700 "/home/$u"
+  mountpoint -q "/home/$u" || mount --bind "$d" "/home/$u"
+  for x in Documents Images Musique Téléchargements Vidéos; do
+    [ -d "/home/$u/$x" ] || install -d -o "$u" -g "$u" "/home/$u/$x"
+  done
+}
+
+make_guest() {
+  getent passwd "$GUEST" >/dev/null || useradd -M -u "$GUEST_UID" -d "/home/$GUEST" -s /bin/bash -c "Invité" \
+    -G "video,input,render,audio,netdev,plugdev" "$GUEST" 2>/dev/null || true
+  passwd -d "$GUEST" >/dev/null 2>&1 || true
+  # Dossier en memoire : rien ne survit a la session ni au redemarrage
+  install -d -m 755 /home
+  [ -d "/home/$GUEST" ] || install -d -m 700 "/home/$GUEST"
+  mountpoint -q "/home/$GUEST" || mount -t tmpfs -o "size=25%,mode=700,uid=$GUEST_UID,gid=$GUEST_UID" tmpfs "/home/$GUEST"
+}
+
+# Ecran de connexion : greetd. Connexion directe du proprietaire tant qu'il
+# est seul (et toujours sur la cle USB, et avant l'assistant de premier
+# demarrage) ; sinon l'ecran de connexion LuminaOS.
+greeter_config() {
+  local others guest auto=1
+  others=$(ls "$R" 2>/dev/null | wc -l)
+  guest=$([ -e "$C/guest" ] && echo 1 || echo 0)
+  [ "$others" -gt 0 ] && auto=0
+  [ "$guest" = 1 ] && auto=0
+  CONFIGURED=0; [ -r "$C/account.conf" ] && . "$C/account.conf"
+  [ "${CONFIGURED:-0}" != 1 ] && auto=1
+  lumina-is-live && auto=1
+  mkdir -p /etc/greetd
+  {
+    echo '# Genere par lumina-users au demarrage : ne pas modifier.'
+    echo '[terminal]'
+    echo 'vt = 1'
+    echo '[default_session]'
+    echo 'command = "/usr/local/bin/lumina-greeter-session"'
+    echo 'user = "_greetd"'
+    if [ "$auto" = 1 ]; then
+      echo '[initial_session]'
+      echo 'command = "/usr/local/bin/lumina-session"'
+      echo 'user = "lumina"'
+    fi
+  } > /etc/greetd/config.toml
+  # Clavier et langue de l'ecran de connexion : ceux du proprietaire
+  local sc=/home/lumina/.config/lumina/session.conf
+  { grep -E '^LUMINA_(KEYMAP|KEYMAP_VARIANT|LANG)=' "$sc" 2>/dev/null || true; } > "$C/greeter.conf"
+  chmod 644 "$C/greeter.conf"
+}
+
+hash_pw() {
+  local salt
+  salt=$(head -c 24 /dev/urandom | base64 | tr -dc 'A-Za-z0-9./' | head -c 16)
+  P="$1" S="$salt" perl -e 'print crypt($ENV{P}, "\$6\$$ENV{S}\$")'
+}
+
+case "${1:-}" in
+  apply)
+    for d in "$R"/*/; do [ -d "$d" ] && make_user "$(basename "$d")"; done
+    if [ -e "$C/guest" ]; then make_guest; fi
+    greeter_config
+    ;;
+  list)
+    printf 'lumina\t%s\t%s\n' "$(cat "$C/name" 2>/dev/null || echo Propriétaire)" \
+      "$(grep -q 'HAS_PASSWORD=1' "$C/account.conf" 2>/dev/null && echo 1 || echo 0)"
+    for d in "$R"/*/; do
+      [ -d "$d" ] || continue; u=$(basename "$d")
+      printf '%s\t%s\t%s\n' "$u" "$(cat "$d/name" 2>/dev/null || echo "$u")" "$([ -s "$d/hash" ] && echo 1 || echo 0)"
+    done
+    [ -e "$C/guest" ] && printf '%s\tInvité\t0\n' "$GUEST"
+    exit 0
+    ;;
+  add)
+    owner_only
+    disp=$(printf '%s' "${3:-}" | tr -d '\n:' | cut -c1-64)
+    # Identifiant : prenom en minuscules sans accents, unique
+    base=$(printf '%s' "${2:-$disp}" | iconv -f UTF-8 -t ASCII//TRANSLIT 2>/dev/null | tr 'A-Z' 'a-z' | tr -cd 'a-z0-9' | cut -c1-20)
+    [ -n "$base" ] || base=personne
+    case "$base" in [0-9]*) base="p$base" ;; esac
+    u=$base; n=2
+    while getent passwd "$u" >/dev/null || [ -d "$R/$u" ] || [ "$u" = "$GUEST" ]; do u="$base$n"; n=$((n + 1)); done
+    uid=1001; while getent passwd "$uid" >/dev/null || grep -qx "$uid" "$R"/*/uid 2>/dev/null; do uid=$((uid + 1)); done
+    IFS= read -r pw || true
+    mkdir -p "$R/$u"
+    echo "$uid" > "$R/$u/uid"
+    printf '%s\n' "${disp:-$u}" > "$R/$u/name"
+    if [ -n "$pw" ]; then ( umask 077; hash_pw "$pw" > "$R/$u/hash" ); fi
+    make_user "$u"
+    greeter_config
+    echo "$u"
+    ;;
+  remove)
+    owner_only
+    u="${2:-}"
+    [ -n "$u" ] && [ -d "$R/$u" ] || { echo "Compte inconnu." >&2; exit 1; }
+    loginctl terminate-user "$u" 2>/dev/null || true
+    sleep 1
+    mountpoint -q "/home/$u" && umount "/home/$u" || true
+    userdel "$u" 2>/dev/null || true
+    sed -i "/^$u:/d" /etc/subuid /etc/subgid 2>/dev/null || true
+    rm -rf "${R:?}/$u" "${HOMES:?}/$u"
+    rmdir "/home/$u" 2>/dev/null || true
+    greeter_config
+    ;;
+  guest)
+    owner_only
+    case "${2:-}" in
+      on)  : > "$C/guest"; make_guest ;;
+      off) rm -f "$C/guest"; loginctl terminate-user "$GUEST" 2>/dev/null || true ;;
+      *) echo "on ou off" >&2; exit 1 ;;
+    esac
+    greeter_config
+    ;;
+  set-password)
+    u=$(id -nu "$(caller_uid)")
+    [ -d "$R/$u" ] || { echo "Utilisez Réglages › Compte." >&2; exit 1; }
+    IFS= read -r old || true
+    IFS= read -r new || true
+    if [ -s "$R/$u/hash" ]; then
+      P="$old" H="$(cat "$R/$u/hash")" perl -e 'exit(crypt($ENV{P}, $ENV{H}) eq $ENV{H} ? 0 : 1)' \
+        || { echo "Mot de passe actuel incorrect." >&2; exit 2; }
+    fi
+    if [ -z "$new" ]; then rm -f "$R/$u/hash"; passwd -d "$u" >/dev/null
+    else h=$(hash_pw "$new"); ( umask 077; printf '%s\n' "$h" > "$R/$u/hash" ); usermod -p "$h" "$u"; fi
+    ;;
+  *)
+    echo "usage : lumina-users apply|list|add|remove|guest|set-password" >&2; exit 1 ;;
+esac

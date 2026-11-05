@@ -1345,6 +1345,10 @@ static void shell_call(GDBusConnection *c, const char *sender, const char *path,
   else if (!strcmp(what, "launcher")) toggle_panel(drawer);
   else if (!strcmp(what, "quick-settings")) toggle_panel(qs);
   else if (!strcmp(what, "refresh")) { refresh_extras_qs(); schedule_shelf(); }
+  else if (!strcmp(what, "close")) close_panels();
+  /* Gestes : bureau voisin (labwc l'ignore s'il n'existe pas) */
+  else if (!strcmp(what, "desk-prev") && desk_cur > 1) on_desk(NULL, GINT_TO_POINTER(desk_cur - 1));
+  else if (!strcmp(what, "desk-next") && desk_cur < desk_count) on_desk(NULL, GINT_TO_POINTER(desk_cur + 1));
   /* Raccourcis de bureau de labwc : on suit le bureau affiche */
   else if (g_str_has_prefix(what, "at-desk-")) {
     const char *n = what + 8;

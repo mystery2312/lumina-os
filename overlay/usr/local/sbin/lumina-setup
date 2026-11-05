@@ -42,7 +42,13 @@ sed -i -E 's/^# *(fr_FR.UTF-8|en_US.UTF-8) UTF-8/\1 UTF-8/' /etc/locale.gen
 locale-gen >/dev/null
 
 systemctl set-default graphical.target
-systemctl enable lumina-session.service
+# Ecran de connexion (greetd) : il lance la session LuminaOS, directement
+# tant que le proprietaire est seul, sinon apres le choix d'un compte.
+
+systemctl enable greetd.service
+systemctl set-default graphical.target
+# Le compte de l'ecran de connexion doit pouvoir ouvrir l'ecran (seatd)
+for g in video render input; do getent group "$g" >/dev/null && usermod -aG "$g" _greetd; done
 # Graine aleatoire ecrite sur l'ESP a chaque demarrage : bloque sysinit.target
 # (lent sur cle USB) pour un gain nul, le noyau a assez d'entropie.
 systemctl mask systemd-boot-random-seed.service

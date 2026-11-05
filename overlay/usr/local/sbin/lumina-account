@@ -36,6 +36,8 @@ case "${1:-}" in
     if [ -s "$NAME" ]; then usermod -c "$(cat "$NAME")" "$U"; fi
     # Reglages systeme conserves sur la partition d'etat (capot...)
     lumina-system apply || true
+    # Autres comptes, invite, ecran de connexion
+    lumina-users apply || true
     ;;
   set-name)
     n=$(printf '%s' "${2:-}" | tr -d '\n:' | cut -c1-64)
@@ -64,6 +66,7 @@ case "${1:-}" in
     ;;
   finish)
     CONFIGURED=1; save
+    lumina-users apply || true
     ;;
   *)
     echo "usage : lumina-account apply|set-name NOM|set-password|finish" >&2; exit 1 ;;

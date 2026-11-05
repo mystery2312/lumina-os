@@ -4,7 +4,7 @@
 @import url("resource:///org/gtk/libgtk/theme/Adwaita/gtk-contained.css");
 
 * { font-family: 'Roboto', 'DejaVu Sans', sans-serif; }
-window, .background, dialog, messagedialog, filechooser { background-color: #f5fbf7; color: #171d1a; }
+dialog, messagedialog, filechooser, window.background:not(.csd) { background-color: #f5fbf7; color: #171d1a; }
 window.csd decoration, dialog.csd decoration { border-radius: 16px; box-shadow: 0 6px 22px alpha(black, 0.22), 0 0 0 1px alpha(black, 0.06); }
 messagedialog.csd decoration { border-radius: 24px; }
 headerbar, .titlebar { background: #f5fbf7; color: #171d1a; border: none; box-shadow: none; min-height: 44px; border-radius: 16px 16px 0 0; }
@@ -28,7 +28,7 @@ placessidebar row:selected, stacksidebar row:selected { background: #cde8de; col
 placessidebar row:selected image, placessidebar row:selected label { color: #06201a; }
 filechooser .dialog-action-box, filechooser actionbar, actionbar { background: #f5fbf7; border: none; }
 filechooser paned > separator, paned > separator { background: transparent; background-image: none; min-width: 1px; }
-scrolledwindow, treeview.view, iconview { background-color: #eff5f1; }
+filechooser scrolledwindow, treeview.view, iconview { background-color: #eff5f1; }
 treeview.view header button { background: #eff5f1; border: none; color: #404945; font-weight: 500; border-radius: 0; }
 treeview.view:selected, treeview.view:selected:focus, iconview:selected, row:selected, list row:selected {
   background: #a1f2d7; color: #002019; }

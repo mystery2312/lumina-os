@@ -53,18 +53,31 @@ case "${LUMINA_RENDERER:-auto}" in
 esac
 echo "$GPU" > "$RUN/lumina-gpu"
 
-if [ "$GPU" = software ]; then
-  export WLR_RENDERER=pixman
-  exec labwc -m
-fi
+export XDG_SESSION_TYPE=wayland
 
-start=$(date +%s)
-labwc -m
-rc=$?
-# Plantage dans les 20 s : le GPU annonce une acceleration qu'il ne tient
-# pas. Rendu logiciel jusqu'au prochain demarrage ; systemd relance.
-if [ "$rc" -ne 0 ] && [ $(( $(date +%s) - start )) -lt 20 ]; then
-  : > "$CRASHED"
-  echo "lumina-session: GLES2 instable sur ce GPU, rendu logiciel" >&2
+# Session invite : rien ne doit lui survivre (dossier en memoire, vide a la
+# sortie, et Chromium sans historique).
+guest_cleanup() {
+  [ "$(id -un)" = invite ] || return 0
+  find "$HOME" -mindepth 1 -maxdepth 1 -exec rm -rf {} + 2>/dev/null || true
+}
+
+if [ "$GPU" = software ]; then
+  WLR_RENDERER=pixman labwc -m
+  rc=$?
+else
+  start=$(date +%s)
+  labwc -m
+  rc=$?
+  # Plantage dans les 20 s : le GPU annonce une acceleration qu'il ne tient
+  # pas. Rendu logiciel jusqu'au prochain demarrage, et on relance aussitot.
+  if [ "$rc" -ne 0 ] && [ $(( $(date +%s) - start )) -lt 20 ]; then
+    : > "$CRASHED"
+    echo "lumina-session: GLES2 instable sur ce GPU, rendu logiciel" >&2
+    echo software > "$RUN/lumina-gpu"
+    WLR_RENDERER=pixman labwc -m
+    rc=$?
+  fi
 fi
+guest_cleanup
 exit "$rc"

@@ -1190,6 +1190,11 @@ static void on_power(GtkButton *b, gpointer d) {
     spawn_async(pw ? argv : nv);
     return;
   }
+  if (!strcmp(d, "logout")) {
+    const char *argv[] = {"labwc", "--exit", NULL};
+    spawn_async(argv);
+    return;
+  }
   const char *argv[] = {"systemctl", d, NULL};
   spawn_async(argv);
 }
@@ -2025,15 +2030,15 @@ static void build_qs(void) {
 
   GtkWidget *pw = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
   gtk_box_set_homogeneous(GTK_BOX(pw), TRUE);
-  const char *acts[][3] = {{"lock", "Verrouiller", "lock"}, {"reboot", "Redémarrer", "reboot"}, {"power", "Éteindre", "poweroff"}};
-  for (int i = 0; i < 3; i++) {
+  /* Verrouiller, se deconnecter (retour a l'ecran de connexion),
+     redemarrer, eteindre : icones, nom en info-bulle */
+  const char *acts[][3] = {{"lock", "Verrouiller (Windows + L)", "lock"}, {"user", "Se déconnecter", "logout"},
+                           {"reboot", "Redémarrer", "reboot"}, {"power", "Éteindre", "poweroff"}};
+  for (int i = 0; i < 4; i++) {
     GtkWidget *b = gtk_button_new();
     add_class(b, "pwr");
-    GtkWidget *h = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
-    gtk_widget_set_halign(h, GTK_ALIGN_CENTER);
-    gtk_container_add(GTK_CONTAINER(h), icon_new(acts[i][0], R_ON, 18)->img);
-    gtk_container_add(GTK_CONTAINER(h), label(acts[i][1], NULL, 0));
-    gtk_container_add(GTK_CONTAINER(b), h);
+    gtk_widget_set_tooltip_text(b, acts[i][1]);
+    gtk_container_add(GTK_CONTAINER(b), icon_new(acts[i][0], R_ON, 20)->img);
     g_signal_connect(b, "clicked", G_CALLBACK(on_power), (gpointer)acts[i][2]);
     gtk_container_add(GTK_CONTAINER(pw), b);
   }

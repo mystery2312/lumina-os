@@ -32,6 +32,8 @@ lumina-display-follow &
 # l'utilisateur decouvre le bureau (gain net sur cle USB ou disque dur).
 # Le cache disque se libere de lui-meme si la memoire vient a manquer.
 ( sleep 20; ionice -c3 nice -n19 find /usr/lib/chromium -type f -size +512k -exec cat {} + >/dev/null 2>&1 ) &
+# Gestes du pave tactile (3 doigts : vue d'ensemble ; 4 doigts : bureaux)
+lumina-gestures &
 # Icones officielles des applis web (Gmail, Drive...), une fois en ligne.
 lumina-fetch-icons &
 
@@ -45,14 +47,19 @@ if lumina-is-live; then
   lumina-install --welcome &
 else
   rm -f "$APPS/lumina-install.desktop"
-  if [ "${CONFIGURED:-0}" != 1 ]; then
+  if [ "$(id -un)" != lumina ]; then
+    # Autre personne ou invite : deja identifiee par l'ecran de connexion
+    lumina-idle &
+    [ "${LUMINA_OPEN_BROWSER:-yes}" = yes ] && lumina-browser &
+  elif [ "${CONFIGURED:-0}" != 1 ]; then
     # Premier demarrage apres installation : assistant (langue, clavier,
     # Wi-Fi, compte). Il lance lui-meme la suite une fois termine.
     lumina-welcome &
   else
-    # Session deja configuree : l'ecran de verrouillage sert d'ecran de
-    # connexion (si un mot de passe est defini).
-    lumina-lock
+    # Connexion directe (proprietaire seul) : l'ecran de verrouillage sert
+    # d'ecran de connexion, si un mot de passe est defini. Passe par l'ecran
+    # de connexion, il n'y a rien a redemander.
+    grep -q initial_session /etc/greetd/config.toml 2>/dev/null && lumina-lock
     lumina-idle &
     [ "${LUMINA_OPEN_BROWSER:-yes}" = yes ] && lumina-browser &
   fi

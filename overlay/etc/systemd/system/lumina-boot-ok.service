@@ -1,10 +1,10 @@
 [Unit]
 Description=Demarrage de LuminaOS reussi
-# Une nouvelle version n'est validee (systemd-bless-boot) qu'une fois le
-# bureau lance et toujours vivant 20 s plus tard. Sinon son compteur
+# Une nouvelle version n'est validee (systemd-bless-boot) qu'une fois l'ecran
+# (bureau ou ecran de connexion) lance et toujours vivant 20 s plus tard. Sinon son compteur
 # d'essais continue de baisser et l'ancienne version reprend la main.
-Requires=lumina-session.service
-After=lumina-session.service
+Requires=greetd.service
+After=greetd.service
 Before=boot-complete.target
 
 [Service]

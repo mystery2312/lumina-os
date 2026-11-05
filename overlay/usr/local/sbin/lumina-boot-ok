@@ -8,7 +8,9 @@
 set -euo pipefail
 export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 sleep 20
-systemctl is-active --quiet lumina-session
+# Bureau ou ecran de connexion affiche (un labwc tourne sous greetd)
+systemctl is-active --quiet greetd
+pgrep -x labwc >/dev/null
 ROOTSRC=$(findmnt -no SOURCE /)
 DISK=/dev/$(lsblk -no PKNAME "$ROOTSRC" | head -1 | tr -d ' ')
 case "$(lsblk -no PARTLABEL "$ROOTSRC" | tr -d ' ')" in
