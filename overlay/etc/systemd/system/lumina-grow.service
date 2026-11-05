@@ -1,0 +1,16 @@
+[Unit]
+Description=Agrandit la cle USB LuminaOS au premier demarrage
+DefaultDependencies=no
+After=systemd-remount-fs.service systemd-udev-trigger.service
+Before=local-fs-pre.target shutdown.target
+Wants=local-fs-pre.target
+Conflicts=shutdown.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/sbin/lumina-grow
+TimeoutSec=300
+
+[Install]
+WantedBy=local-fs.target

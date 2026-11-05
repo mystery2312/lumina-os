@@ -31,8 +31,10 @@ fi
 ESP_START=1
 ROOTA_START=$((ESP_START + ESP_MB))
 ROOTB_START=$((ROOTA_START + ROOT_MB))
-STATE_START=$((ROOTB_START + ROOT_MB))
-STATE_MB=$((TOTAL_MB - STATE_START - 1))
+# ROOT-B n'est pas dans l'image : lumina-grow la cree au premier demarrage.
+STATE_START=$ROOTB_START
+STATE_MB=$STATE_IMG_MB
+TOTAL_MB=$((STATE_START + STATE_MB + 1))
 
 # --- 1. ESP : noyau + initrd + systemd-boot ---------------------------
 KVER=$($SUDO sh -c "ls -1 '$SRC'/boot/vmlinuz-* | sort -V | tail -1" | sed 's|.*/vmlinuz-||')
@@ -123,7 +125,9 @@ $SUDO mke2fs -q -t ext4 -L LUMINA-ROOT -d "$SRC" -E root_owner=0:0 \
 $SUDO chown "$(id -u):$(id -g)" "$W/root.img"
 
 # --- 3. STATE : partition d'etat, vide --------------------------------
-mke2fs -q -t ext4 -L LUMINA-STATE -E lazy_itable_init=0,lazy_journal_init=0 "$W/state.img" "${STATE_MB}M"
+# -T default -b 4096 : sinon mke2fs choisit le profil "small" (blocs de
+# 1 Kio), mauvais une fois la partition agrandie a la taille de la cle.
+mke2fs -q -t ext4 -T default -b 4096 -L LUMINA-STATE -E lazy_itable_init=0,lazy_journal_init=0 "$W/state.img" "${STATE_MB}M"
 
 # --- 4. GPT + ecriture des systemes de fichiers -----------------------
 echo ">> assemblage $IMAGE"
@@ -133,7 +137,6 @@ sgdisk -a 1 \
   -n "5:34:2047"                        -t 5:ef02 -c 5:BIOS \
   -n "1:${ESP_START}M:+${ESP_MB}M"      -t 1:ef00 -c 1:ESP    -u "1:$UUID_ESP" \
   -n "2:${ROOTA_START}M:+${ROOT_MB}M"   -t 2:8304 -c 2:ROOT-A -u "2:$UUID_ROOT_A" \
-  -n "3:${ROOTB_START}M:+${ROOT_MB}M"   -t 3:8304 -c 3:ROOT-B -u "3:$UUID_ROOT_B" \
   -n "4:${STATE_START}M:+${STATE_MB}M"  -t 4:8300 -c 4:STATE  -u "4:$UUID_STATE" \
   "$IMAGE" >/dev/null
 

@@ -50,6 +50,7 @@ update-initramfs -u -k all
 systemctl enable lumina-mglru.service
 systemctl enable lumina-update.timer
 systemctl enable lumina-boot-ok.service
+systemctl enable lumina-grow.service
 systemctl enable seatd.service
 # ifupdown arrive avec le variant 'important' et ferait doublon avec networkd.
 systemctl disable networking.service 2>/dev/null || true

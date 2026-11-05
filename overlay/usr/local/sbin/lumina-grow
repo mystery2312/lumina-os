@@ -1,0 +1,65 @@
+#!/bin/sh
+# Premier demarrage d'une cle USB : l'image ecrite par Rufus/Etcher ne
+# contient que ESP + ROOT-A + une petite partition d'etat, pour s'ecrire
+# vite. On complete ici la disposition du disque :
+#   - ROOT-B (cible des mises a jour) est creee a la FIN de la cle ;
+#   - STATE est agrandie pour occuper tout l'espace entre les deux.
+# L'ordre physique des partitions n'a pas d'importance : tout est retrouve
+# par etiquette (PARTLABEL) ou PARTUUID.
+#
+# Lance avant le montage de /var/lib/lumina. Ne fait rien si ROOT-B existe
+# deja (disque installe, ou cle deja agrandie).
+set -eu
+ROOT_MB=3072
+UUID_ROOT_B=33333333-3333-3333-3333-333333333333
+UUID_STATE=44444444-4444-4444-4444-444444444444
+
+SRC=$(findmnt -no SOURCE /)
+DISK=/dev/$(lsblk -no PKNAME "$SRC" | head -1 | tr -d ' ')
+[ -b "$DISK" ] || exit 0
+lsblk -lno PARTLABEL "$DISK" | grep -qx ROOT-B && exit 0
+STATE=$(lsblk -lnpo NAME,PARTLABEL "$DISK" | awk '$2 == "STATE" { print $1 }')
+[ -b "$STATE" ] || exit 0
+NR=$(cat "/sys/class/block/${STATE#/dev/}/partition")
+
+log() { echo "lumina-grow: $*"; }
+
+# 1. En-tete GPT de secours a la vraie fin du disque (l'image est plus
+#    petite que la cle).
+sgdisk -e "$DISK" >/dev/null 2>&1 || true
+
+SEC=$(cat "/sys/class/block/${DISK#/dev/}/queue/logical_block_size")
+PER_MB=$((1048576 / SEC))
+LAST=$(sgdisk -E "$DISK" 2>/dev/null | tail -1)
+S_START=$(sgdisk -i "$NR" "$DISK" | awk '/^First sector:/ { print $3 }')
+S_END=$(sgdisk -i "$NR" "$DISK" | awk '/^Last sector:/ { print $3 }')
+# ROOT-B alignee sur 1 Mio, en fin de disque.
+B_END=$(( (LAST + 1) / PER_MB * PER_MB - 1 ))
+B_START=$(( B_END + 1 - ROOT_MB * PER_MB ))
+
+# 2. Cle trop petite pour deux systemes : on agrandit seulement l'etat.
+#    Le systeme fonctionne, mais ne pourra pas se mettre a jour.
+if [ "$B_START" -le $(( S_END + 512 * PER_MB )) ]; then
+  log "disque trop petit pour ROOT-B, etat seul agrandi"
+  NEW_END=$LAST
+  sgdisk -d "$NR" -n "$NR:$S_START:$NEW_END" -t "$NR:8300" -c "$NR:STATE" \
+         -u "$NR:$UUID_STATE" "$DISK" >/dev/null
+else
+  NEW_END=$((B_START - 1))
+  sgdisk -d "$NR" -n "$NR:$S_START:$NEW_END" -t "$NR:8300" -c "$NR:STATE" \
+         -u "$NR:$UUID_STATE" \
+         -n "3:$B_START:$B_END" -t 3:8304 -c 3:ROOT-B -u "3:$UUID_ROOT_B" \
+         "$DISK" >/dev/null
+fi
+[ "$NEW_END" -gt "$S_END" ] || exit 0
+
+# 3. Le noyau relit la table. La racine est montee : une relecture
+#    complete serait refusee, d'ou partx partition par partition.
+partx -u --nr "$NR" "$DISK"
+partx -a --nr 3 "$DISK" 2>/dev/null || true
+udevadm settle --timeout=10 || true
+
+# 4. Systeme de fichiers d'etat a la nouvelle taille (hors ligne, rapide).
+e2fsck -fp "$STATE" >/dev/null 2>&1 || true
+resize2fs "$STATE" >/dev/null 2>&1
+log "partition d'etat agrandie a $(( (NEW_END - S_START + 1) / PER_MB )) Mio"

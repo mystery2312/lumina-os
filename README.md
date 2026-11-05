@@ -13,7 +13,7 @@ Un OS de type ChromeOS : le navigateur **est** le système. Cible assumée :
 ## Télécharger
 
 Dernière version : **[Releases](https://github.com/mystery2312/lumina-os/releases/latest)**,
-fichier `lumina-os-<version>.img.xz` à écrire sur une clé USB de 16 Go ou
+fichier `lumina-os-<version>.img.xz` (3,4 Go) à écrire sur une clé USB de 8 Go ou
 plus (balenaEtcher, Rufus en mode DD, GNOME Disques). Voir
 [Essayer, puis installer](#essayer-puis-installer).
 
@@ -152,7 +152,7 @@ Réglage manuel dans `/etc/lumina/session.conf`.
 
 ## Essayer, puis installer
 
-L'image démarre **depuis une clé USB** (16 Go minimum) sans rien modifier
+L'image démarre **depuis une clé USB** (8 Go minimum) sans rien modifier
 sur le PC : PC récents en UEFI, **Secure Boot activé ou non** (shim signé
 par Microsoft → systemd-boot et noyau signés par Debian), et vieux PC sans
 UEFI (BIOS : GRUB, même logique A/B). Écrire
@@ -230,6 +230,10 @@ p2  ROOT-A  3072 Mo  ext4    système (lecture seule et vérifié : jalon M3b)
 p3  ROOT-B  3072 Mo  ext4    cible des mises à jour A/B
 p4  STATE   le reste ext4    /var/lib/lumina : profil, réglages, données
 ```
+
+L'image pour clé USB ne contient que p5, p1, p2 et un petit p4 (3,4 Go à
+écrire au lieu de toute la clé). Au premier démarrage, `lumina-grow` crée
+ROOT-B à la fin de la clé et agrandit STATE jusqu'à elle.
 
 Une mise à jour s'écrit dans la racine inactive puis bascule l'entrée de
 boot. Si le nouveau système ne démarre pas, on repart sur l'ancien : pas
