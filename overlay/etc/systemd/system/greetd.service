@@ -1,0 +1,29 @@
+# Ecran de connexion LuminaOS (remplace le service fourni par Debian).
+# Comme un gestionnaire de connexion : il prend l'ecran au logo de demarrage
+# (plymouth quit --retain-splash) au lieu d'attendre que celui-ci se ferme
+# (plymouth-quit-wait) ; et il demarre apres les comptes et les dossiers
+# personnels, sans attendre le reseau (systemd-user-sessions).
+[Unit]
+Description=Ecran de connexion LuminaOS (greetd)
+Wants=seatd.service var-lib-lumina.mount lumina-prepare-home.service lumina-account.service
+After=seatd.service var-lib-lumina.mount lumina-prepare-home.service lumina-account.service plymouth-start.service
+Conflicts=plymouth-quit.service getty@tty1.service
+After=plymouth-quit.service getty@tty1.service
+OnFailure=plymouth-quit.service
+
+[Service]
+Type=simple
+ExecStartPre=-+/usr/bin/plymouth quit --retain-splash
+ExecStart=/usr/sbin/greetd
+IgnoreSIGPIPE=no
+SendSIGHUP=yes
+TimeoutStopSec=30s
+KeyringMode=shared
+Restart=always
+RestartSec=2
+StartLimitBurst=5
+StartLimitInterval=30
+
+[Install]
+Alias=display-manager.service
+WantedBy=graphical.target
