@@ -27,6 +27,12 @@ else
     tar -xpf "$ROOTFS_TAR" --numeric-owner -C "$SRC"
 fi
 
+# Un /proc ou /sys reste monte dans le rootfs (script d'installation d'un
+# paquet interrompu, chroot de debogage) ferait echouer mke2fs -d.
+for m in proc sys dev/pts dev run; do
+  mountpoint -q "$SRC/$m" 2>/dev/null && $SUDO umount -l "$SRC/$m" || true
+done
+
 # --- offsets (MiB), alignes sur 1 MiB ---------------------------------
 ESP_START=1
 ROOTA_START=$((ESP_START + ESP_MB))
