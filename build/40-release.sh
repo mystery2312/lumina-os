@@ -20,15 +20,16 @@ mkdir -p "$D"
 RAW="$D/root-$VERSION.img"
 ZST="$RAW.zst"
 
-# ext4 a la taille du contenu + 35 % de marge ; lumina-update l'agrandit
-# ensuite a toute la partition. Doit tenir dans la plus petite partition
-# systeme (3 Go dans l'image, 4 Go apres installation).
+# ext4 a la taille du contenu + 20 % (inodes, journal, blocs partiels) ;
+# lumina-update l'agrandit ensuite a toute la partition. Doit tenir dans la
+# partition systeme (ROOT_MB = 3072 Mo, fixee a l'installation : une mise a
+# jour ne peut jamais la depasser).
 USED_MB=$(( $(sudo du -sxm "$ROOTFS_DIR" | cut -f1) ))
-FS_MB=$(( USED_MB * 135 / 100 + 128 ))
+FS_MB=$(( USED_MB * 120 / 100 + 128 ))
 [ "$FS_MB" -le "$ROOT_MB" ] || { echo "systeme trop gros : $FS_MB Mo > $ROOT_MB Mo"; exit 1; }
 echo ">> image systeme $VERSION : $FS_MB Mo (contenu $USED_MB Mo)"
 rm -f "$RAW" "$ZST"
-sudo mke2fs -q -t ext4 -L LUMINA-ROOT -d "$ROOTFS_DIR" -E root_owner=0:0 "$RAW" "${FS_MB}M"
+sudo mke2fs -q -t ext4 -m 0 -L LUMINA-ROOT -d "$ROOTFS_DIR" -E root_owner=0:0 "$RAW" "${FS_MB}M"
 sudo chown "$(id -u):$(id -g)" "$RAW"
 BYTES=$(stat -c %s "$RAW")
 echo ">> compression"

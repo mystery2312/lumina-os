@@ -89,6 +89,9 @@ FSTAB
 # Chromium : traductions francaise et anglaise uniquement (~40 Mo gagnes).
 find /usr/lib/chromium/locales -name '*.pak' ! -name 'fr.pak' ! -name 'en-US.pak' -delete 2>/dev/null || true
 rm -rf /usr/share/doc/* /usr/share/man/* /var/cache/apt/archives/*.deb
+# Traductions : francais et anglais seulement (~140 Mo gagnes)
+find /usr/share/locale -mindepth 1 -maxdepth 1 ! -name 'fr*' ! -name 'en*' ! -name 'locale.alias' -exec rm -rf {} + 2>/dev/null || true
+find /usr/share/help -mindepth 1 -maxdepth 1 ! -name 'fr*' ! -name 'C' -exec rm -rf {} + 2>/dev/null || true
 # Le logo et les icones ajoutes par LuminaOS arrivent apres l'installation
 # des paquets : sans reconstruire le cache, GTK ne les verrait pas.
 gtk-update-icon-cache -q -f /usr/share/icons/hicolor 2>/dev/null || true
