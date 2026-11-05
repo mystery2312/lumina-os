@@ -57,7 +57,12 @@ fi
 #    complete serait refusee, d'ou partx partition par partition.
 partx -u --nr "$NR" "$DISK"
 partx -a --nr 3 "$DISK" 2>/dev/null || true
-udevadm settle --timeout=10 || true
+# Tous les evenements de peripherique doivent etre traites AVANT le montage
+# de la partition d'etat : traites apres, ils font croire a systemd que la
+# partition a disparu, et il la demonte (les fichiers seraient alors ecrits
+# sur la partition systeme, puis masques).
+udevadm trigger --action=change --settle "$DISK" "$STATE" 2>/dev/null || true
+udevadm settle --timeout=60 || true
 
 # 4. Systeme de fichiers d'etat a la nouvelle taille (hors ligne, rapide).
 e2fsck -fp "$STATE" >/dev/null 2>&1 || true

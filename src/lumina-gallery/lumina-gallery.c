@@ -43,7 +43,7 @@ static const char *CSS =
 typedef enum { K_NONE, K_IMAGE, K_VIDEO, K_AUDIO } Kind;
 
 static GtkWidget *win, *hb, *title_l, *info_l, *stack, *img_area, *video_box, *audio_box, *audio_title, *empty_l;
-static GtkWidget *controls, *play_b, *seek, *time_l, *vol, *prev_b, *next_b, *img_tools, *wall_b;
+static GtkWidget *video_page, *controls, *play_b, *seek, *time_l, *vol, *prev_b, *next_b, *img_tools, *wall_b;
 static Icon *play_ic;
 static GPtrArray *files;     /* chemins du dossier, du meme genre */
 static int idx = -1;
@@ -244,7 +244,7 @@ static void show_current(void) {
       g_object_set(player, "uri", uri, NULL);
       g_free(uri);
       gtk_label_set_text(GTK_LABEL(audio_title), base);
-      gtk_stack_set_visible_child(GTK_STACK(stack), k == K_VIDEO ? video_box : audio_box);
+      gtk_stack_set_visible_child(GTK_STACK(stack), k == K_VIDEO ? video_page : audio_box);
       gtk_widget_show(controls);
       gtk_label_set_text(GTK_LABEL(time_l), "0:00");
       set_playing(TRUE);
@@ -415,7 +415,7 @@ int main(int argc, char **argv) {
   g_signal_connect(veb, "button-press-event", G_CALLBACK(on_dbl), NULL);
   gtk_container_add(GTK_CONTAINER(veb), video_box);
   gtk_stack_add_named(GTK_STACK(stack), veb, "video");
-  video_box = video_box;
+  video_page = veb;
   audio_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 14);
   add_class(audio_box, "audio");
   gtk_widget_set_valign(audio_box, GTK_ALIGN_CENTER);
@@ -459,11 +459,12 @@ int main(int argc, char **argv) {
   gtk_range_set_value(GTK_RANGE(vol), 1);
   g_signal_connect(vol, "value-changed", G_CALLBACK(on_vol), NULL);
   gtk_container_add(GTK_CONTAINER(controls), vol);
+  gtk_widget_show_all(controls);           /* contenu visible ; la barre, */
+  gtk_widget_hide(controls);               /* elle, seulement pendant une lecture */
   gtk_widget_set_no_show_all(controls, TRUE);
   gtk_overlay_add_overlay(GTK_OVERLAY(ov), controls);
   gtk_container_add(GTK_CONTAINER(win), ov);
   gtk_widget_show_all(win);
-  gtk_widget_show_all(controls); gtk_widget_hide(controls);
 
   if (argc > 1) {
     GFile *f = g_file_new_for_commandline_arg(argv[1]);

@@ -39,8 +39,10 @@ static void spawn_later(int ms, char **argv) { g_timeout_add(ms, delayed_spawn, 
 /* ------------------------------------------------------------------ */
 static GtkWidget *ov_win, *ov_flow, *ov_empty, *clip_win, *clip_list, *emoji_win, *emoji_flow, *emoji_entry;
 
-static GtkWidget *cal_win;
+static GtkWidget *cal_win, *capbar, *tote_win;
 static void extras_close(void) {
+  if (capbar) gtk_widget_hide(capbar);
+  if (tote_win) gtk_widget_hide(tote_win);
   if (cal_win) gtk_widget_hide(cal_win);
   if (ov_win) gtk_widget_hide(ov_win);
   if (clip_win) gtk_widget_hide(clip_win);
@@ -159,6 +161,18 @@ static void save_desks(void) {
   g_file_set_contents(p, v, -1, NULL);
   g_free(p); g_free(v);
 }
+/* Image de l'ecran prise a l'ouverture de la vue d'ensemble : la vignette
+   du bureau actuel montre ses vraies fenetres. */
+static GdkPixbuf *desk_shot;
+static void take_desk_shot(void) {
+  g_clear_object(&desk_shot);
+  char *f = g_build_filename(g_get_user_runtime_dir(), "lumina-desk.png", NULL);
+  const char *argv[] = {"grim", "-s", "0.25", "-l", "0", f, NULL};
+  int st = 1;
+  g_free(run_argv(argv, &st));
+  if (st == 0) desk_shot = gdk_pixbuf_new_from_file(f, NULL);
+  g_free(f);
+}
 static gboolean draw_desk_thumb(GtkWidget *w, cairo_t *cr, gpointer d) {
   double W = gtk_widget_get_allocated_width(w), H = gtk_widget_get_allocated_height(w), r = 10;
   cairo_new_sub_path(cr);
@@ -166,7 +180,12 @@ static gboolean draw_desk_thumb(GtkWidget *w, cairo_t *cr, gpointer d) {
   cairo_arc(cr, r, H - r, r, M_PI / 2, M_PI); cairo_arc(cr, r, r, r, M_PI, 3 * M_PI / 2);
   cairo_close_path(cr);
   cairo_clip(cr);
-  draw_wall(w, cr, NULL);
+  if (desk_shot && GPOINTER_TO_INT(d) == desk_cur) {
+    double k = MAX(W / gdk_pixbuf_get_width(desk_shot), H / gdk_pixbuf_get_height(desk_shot));
+    cairo_scale(cr, k, k);
+    gdk_cairo_set_source_pixbuf(cr, desk_shot, 0, 0);
+    cairo_paint(cr);
+  } else draw_wall(w, cr, NULL);
   return FALSE;
 }
 static void fill_desks(void);
@@ -188,7 +207,7 @@ static void fill_desks(void) {
     GtkWidget *a = gtk_drawing_area_new();
     gtk_widget_set_size_request(a, 150, 90);
     add_class(a, "deskthumb");
-    g_signal_connect(a, "draw", G_CALLBACK(draw_desk_thumb), NULL);
+    g_signal_connect(a, "draw", G_CALLBACK(draw_desk_thumb), GINT_TO_POINTER(i));
     gtk_container_add(GTK_CONTAINER(v), a);
     char *t = g_strdup_printf("Bureau %d", i);
     gtk_container_add(GTK_CONTAINER(v), label(t, "deskname", 0.5));
@@ -260,6 +279,8 @@ static void build_overview(void) {
 
 static void overview_toggle(void) {
   if (ov_win && gtk_widget_get_visible(ov_win)) { close_panels(); return; }
+  close_panels();
+  take_desk_shot();      /* avant d'afficher quoi que ce soit par-dessus */
   fill_overview();
   fill_desks();
   show_popup(ov_win);
@@ -451,6 +472,70 @@ static void emoji_show(void) {
 }
 
 
+
+/* ------------------------------------------------------------------ */
+/* Barre de capture (Windows + Maj + S, tuile Capture) : photo ou video, */
+/* de tout l'ecran ou d'une zone                                         */
+/* ------------------------------------------------------------------ */
+static GtkWidget *cap_photo, *cap_video, *cap_full, *cap_zone;
+static gboolean cap_is_video, cap_is_zone;
+static void cap_sync(void) {
+  set_class(cap_photo, "on", !cap_is_video); set_class(cap_video, "on", cap_is_video);
+  set_class(cap_full, "on", !cap_is_zone); set_class(cap_zone, "on", cap_is_zone);
+}
+static void on_cap_opt(GtkButton *b, gpointer d) {
+  int k = GPOINTER_TO_INT(d);
+  if (k < 2) cap_is_video = k == 1; else cap_is_zone = k == 3;
+  cap_sync();
+}
+static void on_cap_go(GtkButton *b, gpointer d) {
+  close_panels();
+  char *argv[] = {cap_is_video ? "lumina-record" : "lumina-screenshot", cap_is_zone ? "--zone" : NULL, NULL};
+  spawn_later(350, g_strdupv(argv));
+}
+static GtkWidget *cap_btn(const char *glyph, const char *txt, int k) {
+  GtkWidget *b = gtk_button_new();
+  add_class(b, "capopt");
+  GtkWidget *h = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+  gtk_container_add(GTK_CONTAINER(h), icon_new(glyph, R_ON, 18)->img);
+  gtk_container_add(GTK_CONTAINER(h), label(txt, NULL, 0));
+  gtk_container_add(GTK_CONTAINER(b), h);
+  g_signal_connect(b, "clicked", G_CALLBACK(on_cap_opt), GINT_TO_POINTER(k));
+  return b;
+}
+static void build_capbar(void) {
+  capbar = popup_window("lumina-capture", FALSE);
+  GtkWidget *h = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+  add_class(h, "panel"); add_class(h, "capbar");
+  cap_photo = cap_btn("capture", "Capture", 0);
+  cap_video = cap_btn("record", "Vidéo", 1);
+  gtk_container_add(GTK_CONTAINER(h), cap_photo);
+  gtk_container_add(GTK_CONTAINER(h), cap_video);
+  GtkWidget *sep = gtk_separator_new(GTK_ORIENTATION_VERTICAL);
+  gtk_widget_set_margin_start(sep, 6); gtk_widget_set_margin_end(sep, 6);
+  gtk_container_add(GTK_CONTAINER(h), sep);
+  cap_full = cap_btn("monitor", "Plein écran", 2);
+  cap_zone = cap_btn("fullscreen", "Zone", 3);
+  gtk_container_add(GTK_CONTAINER(h), cap_full);
+  gtk_container_add(GTK_CONTAINER(h), cap_zone);
+  GtkWidget *go = gtk_button_new_with_label("Lancer");
+  add_class(go, "capgo");
+  g_signal_connect(go, "clicked", G_CALLBACK(on_cap_go), NULL);
+  gtk_container_add(GTK_CONTAINER(h), go);
+  GtkWidget *x = gtk_button_new();
+  add_class(x, "ovclose");
+  gtk_container_add(GTK_CONTAINER(x), icon_new("close", R_ON_VAR, 18)->img);
+  g_signal_connect_swapped(x, "clicked", G_CALLBACK(close_panels), NULL);
+  gtk_container_add(GTK_CONTAINER(h), x);
+  gtk_container_add(GTK_CONTAINER(capbar), h);
+  gtk_widget_show_all(h);
+  cap_sync();
+}
+static void capture_show(void) {
+  if (capbar && gtk_widget_get_visible(capbar)) { close_panels(); return; }
+  show_popup(capbar);
+}
+
 /* ------------------------------------------------------------------ */
 /* Calendrier (clic sur l'heure)                                        */
 /* ------------------------------------------------------------------ */
@@ -626,7 +711,20 @@ static gboolean recording(void) {
   int st = 1; g_free(run_argv(argv, &st));
   return st == 0;
 }
-static gboolean night_on(void) { return cfg_flag("nightlight"); }
+/* Eclairage nocturne : 0 desactive, 1 toujours, 2 du soir (20 h) au matin
+   (7 h) ; Reglages > Affichage choisit le mode, la tuile l'allume/eteint. */
+static int night_mode(void) {
+  char *p = cfg_path("nightlight"), *c = read_file(p);
+  int m = !c ? 0 : g_str_has_prefix(c, "auto") ? 2 : 1;
+  g_free(p); g_free(c);
+  return m;
+}
+static gboolean night_on(void) { return night_mode() != 0; }
+static void set_night_mode(int m) {
+  char *p = cfg_path("nightlight");
+  if (!m) g_unlink(p); else g_file_set_contents(p, m == 2 ? "auto\n" : "1\n", -1, NULL);
+  g_free(p);
+}
 
 static void apply_dnd(gboolean on) {
   const char *argv[] = {"makoctl", "mode", on ? "-a" : "-r", "do-not-disturb", NULL};
@@ -635,7 +733,12 @@ static void apply_dnd(gboolean on) {
 static void apply_night(gboolean on) {
   const char *k[] = {"pkill", "-x", "wlsunset", NULL};
   spawn_async(k);
-  if (on) {
+  if (!on) return;
+  if (night_mode() == 2) {
+    /* Du soir au matin, transition douce d'une demi-heure */
+    char *argv[] = {"wlsunset", "-t", "3800", "-T", "6500", "-S", "07:00", "-s", "20:00", "-d", "1800", NULL};
+    spawn_later(300, g_strdupv(argv));
+  } else {
     /* "Nuit" de 00:00 a 23:59 : filtre chaud tout de suite et en continu */
     char *argv[] = {"wlsunset", "-t", "3800", "-T", "6500", "-S", "23:59", "-s", "00:00", "-d", "30", NULL};
     spawn_later(300, g_strdupv(argv));
@@ -644,14 +747,16 @@ static void apply_night(gboolean on) {
 
 static void refresh_media(void);
 static void refresh_bt(void);
+static void refresh_eco(void);
 static void refresh_extras_qs(void) {
   refresh_bt();
+  refresh_eco();
   if (media_box) refresh_media();
   gboolean d = cfg_flag("dnd"), n = night_on(), r = recording();
   set_class(dnd_tile, "on", d);
   gtk_label_set_text(GTK_LABEL(dnd_sub), d ? "Activé" : "Désactivé");
   set_class(night_tile, "on", n);
-  gtk_label_set_text(GTK_LABEL(night_sub), n ? "Activé" : "Désactivé");
+  gtk_label_set_text(GTK_LABEL(night_sub), !n ? "Désactivé" : night_mode() == 2 ? "Automatique (20 h – 7 h)" : "Activé");
   set_class(rec_tile, "on", r);
   gtk_label_set_text(GTK_LABEL(rec_sub), r ? "En cours : toucher pour arrêter" : "Ctrl + Impr");
   if (rec_bar_btn) gtk_widget_set_visible(rec_bar_btn, r);
@@ -663,7 +768,7 @@ static void on_dnd_tile(GtkButton *b, gpointer d) {
 }
 static void on_night_tile(GtkButton *b, gpointer d) {
   gboolean on = !night_on();
-  cfg_set_flag("nightlight", on); apply_night(on); refresh_extras_qs();
+  set_night_mode(on ? 1 : 0); apply_night(on); refresh_extras_qs();
 }
 static gboolean rec_refresh_cb(gpointer d) { refresh_extras_qs(); return G_SOURCE_REMOVE; }
 static void on_rec_tile(GtkButton *b, gpointer d) {
@@ -672,7 +777,10 @@ static void on_rec_tile(GtkButton *b, gpointer d) {
   spawn_later(300, g_strdupv(argv));
   g_timeout_add(1500, rec_refresh_cb, NULL);
 }
+static void capture_show(void);
 static void on_capture_tile(GtkButton *b, gpointer d) {
+  capture_show();
+  return;
   close_panels();
   char *argv[] = {"lumina-screenshot", NULL};
   spawn_later(400, g_strdupv(argv));
@@ -787,6 +895,28 @@ static void on_mag_tile(GtkButton *b, gpointer d) {
   spawn_later(200, g_strdupv(argv));
 }
 
+/* Economie d'energie (portables) : profil power-profiles-daemon */
+static GtkWidget *eco_tile, *eco_sub;
+static gboolean eco_on(void) {
+  const char *argv[] = {"powerprofilesctl", "get", NULL};
+  char *o = run_argv(argv, NULL);
+  gboolean r = o && g_str_has_prefix(o, "power-saver");
+  g_free(o);
+  return r;
+}
+static void refresh_eco(void) {
+  if (!eco_tile) return;
+  gboolean on = eco_on();
+  set_class(eco_tile, "on", on);
+  gtk_label_set_text(GTK_LABEL(eco_sub), on ? "Activée : autonomie avant performances" : "Désactivée");
+}
+static gboolean eco_refresh_cb(gpointer d) { refresh_eco(); return G_SOURCE_REMOVE; }
+static void on_eco_tile(GtkButton *b, gpointer d) {
+  const char *argv[] = {"powerprofilesctl", "set", eco_on() ? "balanced" : "power-saver", NULL};
+  spawn_async(argv);
+  g_timeout_add(600, eco_refresh_cb, NULL);
+}
+
 static void extras_qs(GtkWidget *panel, GtkWidget *grid) {
   dnd_tile = tile("dnd", "Ne pas déranger", &dnd_sub, NULL);
   g_signal_connect(dnd_tile, "clicked", G_CALLBACK(on_dnd_tile), NULL);
@@ -794,7 +924,7 @@ static void extras_qs(GtkWidget *panel, GtkWidget *grid) {
   g_signal_connect(night_tile, "clicked", G_CALLBACK(on_night_tile), NULL);
   GtkWidget *capsub = NULL;
   GtkWidget *cap = tile("capture", "Capture d'écran", &capsub, NULL);
-  gtk_label_set_text(GTK_LABEL(capsub), "Impr");
+  gtk_label_set_text(GTK_LABEL(capsub), "Photo ou vidéo · Windows + Maj + S");
   g_signal_connect(cap, "clicked", G_CALLBACK(on_capture_tile), NULL);
   rec_tile = tile("record", "Enregistrer l'écran", &rec_sub, NULL);
   g_signal_connect(rec_tile, "clicked", G_CALLBACK(on_rec_tile), NULL);
@@ -817,6 +947,12 @@ static void extras_qs(GtkWidget *panel, GtkWidget *grid) {
   gtk_label_set_text(GTK_LABEL(magsub), "Windows + Ctrl + M");
   g_signal_connect(mag_tile, "clicked", G_CALLBACK(on_mag_tile), NULL);
   gtk_grid_attach(GTK_GRID(grid), mag_tile, has_bt ? 1 : 0, 3, 1, 1);
+  if (g_file_test("/sys/class/power_supply/BAT0", G_FILE_TEST_EXISTS) ||
+      g_file_test("/sys/class/power_supply/BAT1", G_FILE_TEST_EXISTS)) {
+    eco_tile = tile("battery", "Économie d'énergie", &eco_sub, NULL);
+    g_signal_connect(eco_tile, "clicked", G_CALLBACK(on_eco_tile), NULL);
+    gtk_grid_attach(GTK_GRID(grid), eco_tile, has_bt ? 0 : 1, has_bt ? 4 : 3, 1, 1);
+  }
   gtk_grid_set_row_spacing(GTK_GRID(grid), 8);
 
   /* Lecture en cours, puis notifications, sous les tuiles */
@@ -1050,6 +1186,131 @@ static void extras_drawer(GtkWidget *v) {
   gtk_container_add(GTK_CONTAINER(v), files_box);
 }
 
+
+/* ------------------------------------------------------------------ */
+/* Fichiers recents (a droite de l'etagere) : dernieres captures,        */
+/* enregistrements et telechargements, a ouvrir ou a glisser dans une    */
+/* appli (un site, un mail...)                                           */
+/* ------------------------------------------------------------------ */
+static GtkWidget *tote_btn, *tote_grid;
+typedef struct { char *path; gint64 mtime; } Recent;
+static gint by_mtime(gconstpointer a, gconstpointer b) {
+  gint64 x = (*(Recent *const *)a)->mtime, y = (*(Recent *const *)b)->mtime;
+  return x < y ? 1 : x > y ? -1 : 0;
+}
+static void recent_free(gpointer p) { Recent *r = p; g_free(r->path); g_free(r); }
+static GPtrArray *recent_files(void) {
+  GPtrArray *a = g_ptr_array_new_with_free_func(recent_free);
+  const char *pics = g_get_user_special_dir(G_USER_DIRECTORY_PICTURES), *vids = g_get_user_special_dir(G_USER_DIRECTORY_VIDEOS),
+             *dl = g_get_user_special_dir(G_USER_DIRECTORY_DOWNLOAD);
+  char *dirs[] = {pics ? g_build_filename(pics, "Captures d'écran", NULL) : NULL,
+                  vids ? g_build_filename(vids, "Enregistrements d'écran", NULL) : NULL,
+                  dl ? g_strdup(dl) : g_build_filename(g_get_home_dir(), "Téléchargements", NULL)};
+  gint64 limit = g_get_real_time() / G_USEC_PER_SEC - 7 * 24 * 3600;
+  for (int i = 0; i < 3; i++) {
+    GDir *d = dirs[i] ? g_dir_open(dirs[i], 0, NULL) : NULL;
+    const char *n;
+    while (d && (n = g_dir_read_name(d))) {
+      if (n[0] == '.' || g_str_has_suffix(n, ".crdownload") || g_str_has_suffix(n, ".part")) continue;
+      char *p = g_build_filename(dirs[i], n, NULL);
+      GStatBuf st;
+      if (g_stat(p, &st) == 0 && S_ISREG(st.st_mode) && st.st_mtime > limit) {
+        Recent *r = g_new0(Recent, 1); r->path = p; r->mtime = st.st_mtime; g_ptr_array_add(a, r);
+      } else g_free(p);
+    }
+    if (d) g_dir_close(d);
+    g_free(dirs[i]);
+  }
+  g_ptr_array_sort(a, by_mtime);
+  if (a->len > 8) g_ptr_array_set_size(a, 8);
+  return a;
+}
+static void on_tote_open(GtkButton *b, gpointer path) {
+  close_panels();
+  char *uri = g_filename_to_uri(path, NULL, NULL);
+  if (uri) g_app_info_launch_default_for_uri(uri, NULL, NULL);
+  g_free(uri);
+}
+static void on_tote_drag_get(GtkWidget *w, GdkDragContext *c, GtkSelectionData *sd, guint info, guint t, gpointer path) {
+  char *uris[] = {g_filename_to_uri(path, NULL, NULL), NULL};
+  gtk_selection_data_set_uris(sd, uris);
+  g_free(uris[0]);
+}
+static void on_tote_folder(GtkButton *b, gpointer d) {
+  close_panels();
+  const char *dl = g_get_user_special_dir(G_USER_DIRECTORY_DOWNLOAD);
+  const char *argv[] = {"lumina-files", dl ? dl : g_get_home_dir(), NULL};
+  spawn_async(argv);
+}
+static const GtkTargetEntry TOTE_TARGET[] = {{"text/uri-list", 0, 0}};
+static void fill_tote(void) {
+  GList *k = gtk_container_get_children(GTK_CONTAINER(tote_grid));
+  for (GList *l = k; l; l = l->next) gtk_widget_destroy(l->data);
+  g_list_free(k);
+  GPtrArray *a = recent_files();
+  for (guint i = 0; i < a->len; i++) {
+    Recent *r = a->pdata[i];
+    GtkWidget *b = gtk_button_new();
+    add_class(b, "toteitem");
+    gtk_widget_set_tooltip_text(b, r->path);
+    GtkWidget *v = gtk_box_new(GTK_ORIENTATION_VERTICAL, 4);
+    GdkPixbuf *pb = gdk_pixbuf_new_from_file_at_size(r->path, 120, 80, NULL);
+    GtkWidget *im = pb ? gtk_image_new_from_pixbuf(pb) : icon_new(g_str_has_suffix(r->path, ".mp4") ? "vid" : "file", R_ON_VAR, 40)->img;
+    if (pb) g_object_unref(pb);
+    gtk_widget_set_size_request(im, 120, 80);
+    gtk_container_add(GTK_CONTAINER(v), im);
+    char *base = g_path_get_basename(r->path);
+    GtkWidget *nl = label(base, "kind", 0.5);
+    gtk_label_set_ellipsize(GTK_LABEL(nl), PANGO_ELLIPSIZE_MIDDLE);
+    gtk_label_set_max_width_chars(GTK_LABEL(nl), 16);
+    gtk_container_add(GTK_CONTAINER(v), nl);
+    gtk_container_add(GTK_CONTAINER(b), v);
+    char *p = g_strdup(r->path);
+    g_signal_connect_data(b, "clicked", G_CALLBACK(on_tote_open), p, (GClosureNotify)(void (*)(void))g_free, 0);
+    gtk_drag_source_set(b, GDK_BUTTON1_MASK, TOTE_TARGET, 1, GDK_ACTION_COPY);
+    g_signal_connect_data(b, "drag-data-get", G_CALLBACK(on_tote_drag_get), g_strdup(r->path), (GClosureNotify)(void (*)(void))g_free, 0);
+    gtk_flow_box_insert(GTK_FLOW_BOX(tote_grid), b, -1);
+    g_free(base);
+  }
+  if (!a->len) gtk_flow_box_insert(GTK_FLOW_BOX(tote_grid), label("Vos captures et téléchargements récents apparaîtront ici.", "hint", 0), -1);
+  g_ptr_array_free(a, TRUE);
+  gtk_widget_show_all(tote_grid);
+}
+static void build_tote(void) {
+  tote_win = layer_window(GTK_LAYER_SHELL_LAYER_OVERLAY, "lumina-recent");
+  gtk_layer_set_monitor(GTK_WINDOW(tote_win), main_monitor());
+  anchor(tote_win, FALSE, TRUE, FALSE, TRUE);
+  gtk_layer_set_keyboard_mode(GTK_WINDOW(tote_win), GTK_LAYER_SHELL_KEYBOARD_MODE_ON_DEMAND);
+  g_signal_connect(tote_win, "key-press-event", G_CALLBACK(on_popup_key), NULL);
+  GtkWidget *v = gtk_box_new(GTK_ORIENTATION_VERTICAL, 10);
+  add_class(v, "panel");
+  GtkWidget *h = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+  gtk_container_add(GTK_CONTAINER(h), icon_new("download", R_ON_VAR, 18)->img);
+  GtkWidget *t = label("Fichiers récents", "ptitle", 0);
+  gtk_widget_set_hexpand(t, TRUE);
+  gtk_container_add(GTK_CONTAINER(h), t);
+  GtkWidget *f = gtk_button_new_with_label("Téléchargements");
+  add_class(f, "textbtn");
+  g_signal_connect(f, "clicked", G_CALLBACK(on_tote_folder), NULL);
+  gtk_container_add(GTK_CONTAINER(h), f);
+  gtk_container_add(GTK_CONTAINER(v), h);
+  tote_grid = gtk_flow_box_new();
+  gtk_flow_box_set_selection_mode(GTK_FLOW_BOX(tote_grid), GTK_SELECTION_NONE);
+  gtk_flow_box_set_max_children_per_line(GTK_FLOW_BOX(tote_grid), 4);
+  gtk_flow_box_set_min_children_per_line(GTK_FLOW_BOX(tote_grid), 2);
+  gtk_container_add(GTK_CONTAINER(v), tote_grid);
+  gtk_container_add(GTK_CONTAINER(v), label("Glissez un fichier vers une appli ou un site pour l'y envoyer.", "hint", 0));
+  gtk_container_add(GTK_CONTAINER(tote_win), v);
+  gtk_widget_show_all(v);
+}
+static void on_tote_btn(GtkButton *b, gpointer d) {
+  if (tote_win && gtk_widget_get_visible(tote_win)) { close_panels(); return; }
+  fill_tote();
+  close_panels();
+  gtk_widget_show(scrim);
+  gtk_widget_show(tote_win);
+}
+
 /* ------------------------------------------------------------------ */
 /* Etagere : masquage automatique, position, glisser-deposer            */
 /* ------------------------------------------------------------------ */
@@ -1207,6 +1468,15 @@ static void extras_shelf_button(GtkWidget *b, const char *key, gboolean has_app)
 
 static void extras_shelf(GtkWidget *box) {
   shelf_box = box;
+  /* Fichiers recents, au bout de l'etagere */
+  tote_btn = gtk_button_new();
+  add_class(tote_btn, "slot");
+  gtk_widget_set_tooltip_text(tote_btn, "Fichiers récents");
+  gtk_widget_set_valign(tote_btn, GTK_ALIGN_CENTER);
+  gtk_container_add(GTK_CONTAINER(tote_btn), icon_new("download", R_ON_VAR, 20)->img);
+  g_signal_connect(tote_btn, "clicked", G_CALLBACK(on_tote_btn), NULL);
+  gtk_box_pack_end(GTK_BOX(box), tote_btn, FALSE, FALSE, 4);
+  build_tote();
   read_shelf_conf();
   gtk_widget_add_events(shelf_win, GDK_ENTER_NOTIFY_MASK | GDK_LEAVE_NOTIFY_MASK | GDK_BUTTON_PRESS_MASK);
   g_signal_connect(shelf_win, "enter-notify-event", G_CALLBACK(on_shelf_enter), NULL);
@@ -1346,6 +1616,8 @@ static void shell_call(GDBusConnection *c, const char *sender, const char *path,
   else if (!strcmp(what, "quick-settings")) toggle_panel(qs);
   else if (!strcmp(what, "refresh")) { refresh_extras_qs(); schedule_shelf(); }
   else if (!strcmp(what, "close")) close_panels();
+  else if (!strcmp(what, "capture")) capture_show();
+  else if (!strcmp(what, "night-reload")) { apply_night(night_on()); refresh_extras_qs(); }
   /* Gestes : bureau voisin (labwc l'ignore s'il n'existe pas) */
   else if (!strcmp(what, "desk-prev") && desk_cur > 1) on_desk(NULL, GINT_TO_POINTER(desk_cur - 1));
   else if (!strcmp(what, "desk-next") && desk_cur < desk_count) on_desk(NULL, GINT_TO_POINTER(desk_cur + 1));
@@ -1386,6 +1658,7 @@ static void extras_init(void) {
   build_clip();
   build_emoji();
   build_calendar();
+  build_capbar();
   g_bus_own_name(G_BUS_TYPE_SESSION, "org.luminaos.Shell", G_BUS_NAME_OWNER_FLAGS_NONE,
                  on_shell_bus, NULL, NULL, NULL, NULL);
   /* Etats retrouves a l'ouverture de session */

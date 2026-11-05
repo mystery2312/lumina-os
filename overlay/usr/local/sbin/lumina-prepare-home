@@ -6,6 +6,14 @@
 # montes a l'emplacement standard /home/lumina, ou les applis et scripts
 # Linux s'attendent a les trouver.
 set -eu
+# La partition d'etat doit etre montee : sinon tout serait ecrit sur la
+# partition systeme, puis masque au montage (et perdu a la mise a jour).
+for _ in $(seq 60); do
+  mountpoint -q /var/lib/lumina && break
+  systemctl start var-lib-lumina.mount 2>/dev/null || true
+  sleep 1
+done
+mountpoint -q /var/lib/lumina || { echo "partition d'etat absente" >&2; exit 1; }
 DATA=/var/lib/lumina/home
 H=/home/lumina
 

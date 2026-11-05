@@ -661,6 +661,15 @@ static void build_personalize(GtkWidget *p) {
   update_wall_row();
 }
 
+static void on_night_mode(GtkComboBox *c, gpointer d) {
+  int m = gtk_combo_box_get_active(c);
+  char *p = g_build_filename(g_get_user_config_dir(), "lumina", "nightlight", NULL);
+  if (m <= 0) g_unlink(p); else g_file_set_contents(p, m == 2 ? "auto\n" : "1\n", -1, NULL);
+  g_free(p);
+  const char *argv[] = {"lumina-shell", "--action", "night-reload", NULL};
+  spawn_async(argv);
+}
+
 static void build_display(void) {
   GtkWidget *p = page_box("affichage", "Affichage");
   GtkWidget *g = group(p, NULL);
@@ -668,6 +677,18 @@ static void build_display(void) {
   dark_lock = TRUE; gtk_switch_set_active(GTK_SWITCH(dark_sw), dark); dark_lock = FALSE;
   g_signal_connect(dark_sw, "notify::active", G_CALLBACK(on_dark), NULL);
   row(g, "Thème sombre", "Bureau, applis LuminaOS et pages web compatibles", dark_sw, NULL);
+  {
+    /* Eclairage nocturne : filtre chaud qui reduit la lumiere bleue */
+    char *np = g_build_filename(g_get_user_config_dir(), "lumina", "nightlight", NULL), *nc = read_file(np);
+    int m = !nc ? 0 : g_str_has_prefix(nc, "auto") ? 2 : 1;
+    g_free(np); g_free(nc);
+    GtkWidget *nl = gtk_combo_box_text_new();
+    const char *nt[] = {"Désactivé", "Toujours", "Du soir au matin (20 h – 7 h)"};
+    for (int i = 0; i < 3; i++) gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(nl), nt[i]);
+    gtk_combo_box_set_active(GTK_COMBO_BOX(nl), m);
+    g_signal_connect(nl, "changed", G_CALLBACK(on_night_mode), NULL);
+    row(g, "Éclairage nocturne", "Teinte plus chaude, moins de lumière bleue le soir", nl, NULL);
+  }
   build_personalize(p);
 
   GDir *d = g_dir_open("/sys/class/backlight", 0, NULL);

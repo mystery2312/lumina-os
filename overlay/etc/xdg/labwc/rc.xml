@@ -97,6 +97,8 @@
     <!-- Historique du presse-papiers, emojis -->
     <keybind key="W-v"><action name="Execute" command="lumina-shell --action clipboard" /></keybind>
     <keybind key="W-period"><action name="Execute" command="lumina-shell --action emoji" /></keybind>
+    <!-- Windows + Maj + S : barre de capture (ecran ou zone, photo ou video) -->
+    <keybind key="W-S-s"><action name="Execute" command="lumina-shell --action capture" /></keybind>
     <!-- Ctrl + Impr : enregistrer l'ecran (demarrer / arreter) -->
     <keybind key="C-Print"><action name="Execute" command="lumina-record" /></keybind>
     <!-- Loupe -->

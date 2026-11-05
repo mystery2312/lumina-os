@@ -1,6 +1,7 @@
 #!/bin/sh
 # Enregistrement de l'ecran, facon ChromeOS : un appel demarre, le suivant
 # arrete (Ctrl + Impr, tuile des reglages rapides, bouton rouge de la barre).
+#   lumina-record --zone : une zone de l'ecran, choisie a la souris
 # Video dans Videos > Enregistrements d'ecran, ecran principal, sans son.
 DIR="$HOME/Vidéos/Enregistrements d'écran"
 if pgrep -x wf-recorder >/dev/null; then
@@ -20,8 +21,13 @@ else
   mkdir -p "$DIR"
   F="$DIR/Enregistrement $(date '+%Y-%m-%d %H.%M.%S').mp4"
   OUT=$(wlr-randr 2>/dev/null | awk '/^[^ ]/ { o = $1 } /^  Enabled: yes/ { print o; exit }')
+  ZONE=""
+  if [ "${1:-}" = "--zone" ]; then
+    ZONE=$(slurp -b 00000066 -c 85d6bcff -w 2) || exit 0
+    OUT=""
+  fi
   notify-send -a "Enregistrement de l'écran" "Enregistrement en cours" "Ctrl + Impr ou le bouton rouge en haut pour arrêter"
   # Codage rapide (ultrafast) : un vieux processeur suit sans saccades
-  setsid wf-recorder ${OUT:+-o "$OUT"} -c libx264 -p preset=ultrafast -p crf=26 -f "$F" >/dev/null 2>&1 &
+  setsid wf-recorder ${OUT:+-o "$OUT"} ${ZONE:+-g "$ZONE"} -c libx264 -p preset=ultrafast -p crf=26 -f "$F" >/dev/null 2>&1 &
 fi
 lumina-shell --action refresh >/dev/null 2>&1 || true

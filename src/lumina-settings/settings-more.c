@@ -614,9 +614,13 @@ static void build_shortcuts(void) {
     {"Windows + Maj + 1 … 4", "Envoyer la fenêtre sur un bureau", NULL},
     {"Captures", NULL, NULL},
     {"Impr", "Capture de l'écran", NULL}, {"Maj + Impr", "Capture d'une zone", NULL},
+    {"Windows + Maj + S", "Barre de capture (photo ou vidéo, écran ou zone)", NULL},
     {"Ctrl + Impr", "Enregistrer l'écran (démarrer / arrêter)", NULL},
     {"Accessibilité", NULL, NULL},
     {"Windows + Ctrl + M", "Loupe", NULL}, {"Windows + Ctrl + + / −", "Zoom de la loupe", NULL},
+    {"Pavé tactile", NULL, NULL},
+    {"3 doigts vers le haut / le bas", "Ouvrir / fermer la vue d'ensemble", NULL},
+    {"4 doigts à gauche / à droite", "Bureau précédent / suivant", NULL},
   };
   GtkWidget *g = NULL;
   for (guint i = 0; i < G_N_ELEMENTS(S); i++) {

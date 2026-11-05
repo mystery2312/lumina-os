@@ -174,7 +174,14 @@ static const char *BASE_CSS =
   ".fileres { background: transparent; color: @on; border-radius: 14px; padding: 7px 12px; }\n"
   ".fileres:hover { background: @c; }\n"
   ".fileres .kind { color: @on_var; font-size: 11.5px; }\n"
-  ".shelf.side { border-top: none; padding: 8px 4px; }\n";
+  ".shelf.side { border-top: none; padding: 8px 4px; }\n"
+  ".capbar { padding: 10px 12px; }\n"
+  ".capopt { background: transparent; color: @on; border-radius: 18px; padding: 8px 14px; }\n"
+  ".capopt:hover { background: alpha(@on, 0.08); }\n"
+  ".capopt.on { background: @sec_c; color: @on_sec_c; }\n"
+  ".capgo { background: @pri; color: @on_pri; border-radius: 20px; padding: 8px 20px; font-weight: 500; margin-left: 8px; }\n"
+  ".toteitem { background: @c_high; color: @on; border-radius: 14px; padding: 8px; }\n"
+  ".toteitem:hover { background: @c_top; }\n";
 
 /* ------------------------------------------------------------------ */
 /* Petits utilitaires systeme                                          */
