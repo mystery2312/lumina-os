@@ -13,7 +13,7 @@ static const char *CSS =
   "button { background-image: none; border: none; box-shadow: none; text-shadow: none; outline: none; }\n"
   "window.lumina-calc.csd { border-radius: 0 0 16px 16px; background: @surface; }\n"
   "window.lumina-calc.csd decoration { border-radius: 16px; box-shadow: 0 6px 22px alpha(black, 0.18), 0 0 0 1px alpha(black, 0.06); }\n"
-  ".header { background: @surface; border: none; box-shadow: none; padding: 4px 8px; min-height: 36px; border-radius: 16px 16px 0 0; }\n"
+  ".header { background: @surface; border: none; box-shadow: none; padding: 2px 8px; min-height: 40px; border-radius: 16px 16px 0 0; }\n"
   ".header button.titlebutton { background: transparent; border-radius: 16px; min-width: 30px; min-height: 30px; color: @on_var; }\n"
   ".header button.titlebutton:hover { background: alpha(@on, 0.08); }\n"
   ".apptitle { font-size: 15px; color: @on; padding-left: 8px; }\n"

@@ -18,7 +18,7 @@ static const char *CSS =
   "window.lumina-text.csd { border-radius: 0 0 16px 16px; background: @surface; }\n"
   "window.lumina-text.csd decoration { border-radius: 16px; box-shadow: 0 6px 22px alpha(black, 0.18), 0 0 0 1px alpha(black, 0.06); }\n"
   "window.lumina-text.maximized, window.lumina-text.maximized decoration, window.lumina-text.tiled decoration { border-radius: 0; }\n"
-  ".header { background: @surface; border: none; box-shadow: none; padding: 6px 10px; min-height: 44px; border-radius: 16px 16px 0 0; }\n"
+  ".header { background: @surface; border: none; box-shadow: none; padding: 2px 8px; min-height: 40px; border-radius: 16px 16px 0 0; }\n"
   "window.maximized .header { border-radius: 0; }\n"
   ".header button.titlebutton { background: transparent; border-radius: 16px; min-width: 32px; min-height: 32px; color: @on_var; }\n"
   ".header button.titlebutton:hover { background: alpha(@on, 0.08); }\n"

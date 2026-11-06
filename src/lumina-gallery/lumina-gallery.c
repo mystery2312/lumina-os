@@ -19,7 +19,7 @@ static const char *CSS =
   "window.lumina-gallery { background: #101312; }\n"
   "window.lumina-gallery.csd decoration { border-radius: 16px; box-shadow: 0 6px 22px alpha(black, 0.3); }\n"
   "window.lumina-gallery.maximized decoration, window.lumina-gallery.fullscreen decoration { border-radius: 0; }\n"
-  ".header { background: #1a1d1c; color: #e6e9e7; border: none; box-shadow: none; padding: 6px 10px; min-height: 44px; border-radius: 16px 16px 0 0; }\n"
+  ".header { background: #1a1d1c; color: #e6e9e7; border: none; box-shadow: none; padding: 2px 8px; min-height: 40px; border-radius: 16px 16px 0 0; }\n"
   "window.maximized .header { border-radius: 0; }\n"
   ".header button.titlebutton { background: transparent; border-radius: 16px; min-width: 32px; min-height: 32px; color: #c4c9c6; }\n"
   ".header button.titlebutton:hover { background: alpha(white, 0.10); }\n"

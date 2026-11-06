@@ -141,6 +141,9 @@ static const char *BASE_CSS =
   ".deskbtn:hover { background: alpha(@on, 0.08); }\n"
   ".deskbtn.current { box-shadow: inset 0 0 0 3px @pri; }\n"
   ".deskname { font-size: 12.5px; font-weight: 500; }\n"
+  ".deskclose { background: @surface; border-radius: 12px; min-width: 24px; min-height: 24px; padding: 0; margin: 2px;\n"
+  "             box-shadow: 0 1px 3px alpha(black, 0.3); }\n"
+  ".deskclose:hover { background: @c_top; }\n"
   ".deskadd { background: @pri_c; border-radius: 24px; min-width: 48px; min-height: 48px; padding: 0; margin: 25px 6px 0 6px; }\n"
   ".deskadd:hover { background: @pri; }\n"
   ".ovcard { background: @c_low; border-radius: 20px; min-width: 260px;\n"
@@ -373,7 +376,6 @@ static void close_panels(void) {
 }
 
 static void open_panel(GtkWidget *p) {
-  if (p == qs) fit_qs();
   close_panels();
   gtk_widget_show(scrim);          /* mappe en premier : reste dessous */
   gtk_widget_show(p);
@@ -384,6 +386,7 @@ static void open_panel(GtkWidget *p) {
   } else {
     set_class(tray_btn, "open", TRUE);
     refresh_qs();
+    fit_qs();          /* apres le remplissage (notifications, lecture...) */
   }
 }
 
@@ -526,6 +529,29 @@ static GdkPixbuf *glyph_pixbuf(const char *name, int px) {
   return pb;
 }
 
+/* Icone d'une appli web installee depuis Chromium : prise directement dans
+   le profil (Web Applications/Manifest Resources/<id>/Icons), pour ne pas
+   dependre de son installation dans le theme d'icones. */
+static gboolean crx_id(const char *s, char out[33]);
+static GdkPixbuf *pwa_pixbuf(GDesktopAppInfo *a, int px) {
+  char id[33];
+  const char *aid = g_app_info_get_id(G_APP_INFO(a)), *wm = g_desktop_app_info_get_startup_wm_class(a);
+  if (!crx_id(aid, id) && !crx_id(wm, id)) return NULL;
+  const char *bases[] = {"/var/lib/lumina/browser", NULL};
+  char *mine = g_build_filename(g_get_user_data_dir(), "lumina-browser", NULL);
+  bases[1] = mine;
+  static const int sizes[] = {256, 192, 144, 128, 96, 64, 48, 32};
+  GdkPixbuf *pb = NULL;
+  for (int b = 0; b < 2 && !pb; b++)
+    for (guint i = 0; i < G_N_ELEMENTS(sizes) && !pb; i++) {
+      char *f = g_strdup_printf("%s/Default/Web Applications/Manifest Resources/%s/Icons/%d.png", bases[b], id, sizes[i]);
+      if (g_file_test(f, G_FILE_TEST_EXISTS)) pb = gdk_pixbuf_new_from_file_at_scale(f, px, px, TRUE, NULL);
+      g_free(f);
+    }
+  g_free(mine);
+  return pb;
+}
+
 static GtkWidget *app_icon(GDesktopAppInfo *a, gboolean big) {
   int px = big ? 48 : 38, sc = 2;   /* rendu a 2x : net sur les ecrans HiDPI */
   RoundIcon *ri = g_new0(RoundIcon, 1);
@@ -536,6 +562,7 @@ static GtkWidget *app_icon(GDesktopAppInfo *a, gboolean big) {
     GtkIconInfo *info = gtk_icon_theme_lookup_by_gicon(gtk_icon_theme_get_default(), gi, ip, GTK_ICON_LOOKUP_FORCE_SIZE);
     if (info) { ri->pb = gtk_icon_info_load_icon(info, NULL); g_object_unref(info); }
   }
+  if (!ri->pb) ri->pb = pwa_pixbuf(a, (int)(px * 0.70) * sc);
   if (!ri->pb) {
     char *col = g_desktop_app_info_get_string(a, "X-Lumina-Color");
     const char *tone = app_tone(a);
@@ -679,6 +706,13 @@ static void fill_drawer(void) {
 /* PWA installee depuis Chromium, appli Android ajoutee par Waydroid,
    paquet Debian : tous deposent un fichier .desktop, que GIO surveille. */
 static void on_apps_changed(GAppInfoMonitor *m, gpointer d) {
+  if (m) {   /* appli installee : ses icones viennent d'arriver */
+    GtkIconTheme *th = gtk_icon_theme_get_default();
+    gchar **path = NULL; gint n = 0;
+    gtk_icon_theme_get_search_path(th, &path, &n);
+    gtk_icon_theme_set_search_path(th, (const gchar **)path, n);
+    g_strfreev(path);
+  }
   GList *kids = gtk_container_get_children(GTK_CONTAINER(flow));
   for (GList *l = kids; l; l = l->next) gtk_widget_destroy(l->data);
   g_list_free(kids);
@@ -1397,7 +1431,12 @@ typedef struct {
   char *app_id, *title;
   gboolean maximized, minimized, activated, fullscreen;
   guint64 last_active;           /* ordre d'activation */
+  int n_out;                     /* ecrans ou elle est visible (0 : autre bureau ou reduite) */
+  int desk;                      /* bureau virtuel ou elle a ete vue en dernier */
 } Toplevel;
+/* Bureau virtuel affiche (suivi par lumina-extras : vue d'ensemble,
+   raccourcis de labwc) */
+static int desk_cur = 1;
 
 static GList *toplevels;
 static struct wl_seat *seat;
@@ -1414,8 +1453,16 @@ static void tl_title(void *d, struct zwlr_foreign_toplevel_handle_v1 *h, const c
 static void tl_app_id(void *d, struct zwlr_foreign_toplevel_handle_v1 *h, const char *a) {
   Toplevel *tl = d; g_free(tl->app_id); tl->app_id = g_strdup(a);
 }
-static void tl_output_enter(void *d, struct zwlr_foreign_toplevel_handle_v1 *h, struct wl_output *o) {}
-static void tl_output_leave(void *d, struct zwlr_foreign_toplevel_handle_v1 *h, struct wl_output *o) {}
+/* Bureau de chaque fenetre : labwc ne le dit pas aux clients. On le suit :
+   bureau d'ouverture, bureau ou elle est activee (on ne peut activer
+   qu'une fenetre visible), et deplacements par raccourci (actions
+   "moved-*" de lumina-extras). */
+static void tl_output_enter(void *d, struct zwlr_foreign_toplevel_handle_v1 *h, struct wl_output *o) {
+  Toplevel *tl = d; tl->n_out++;
+}
+static void tl_output_leave(void *d, struct zwlr_foreign_toplevel_handle_v1 *h, struct wl_output *o) {
+  Toplevel *tl = d; if (tl->n_out > 0) tl->n_out--;
+}
 static void tl_state(void *d, struct zwlr_foreign_toplevel_handle_v1 *h, struct wl_array *states) {
   Toplevel *tl = d;
   gboolean was_active = tl->activated;
@@ -1430,6 +1477,7 @@ static void tl_state(void *d, struct zwlr_foreign_toplevel_handle_v1 *h, struct 
     }
   }
   if (tl->activated && !was_active) tl->last_active = ++activation_seq;
+  if (tl->activated) tl->desk = desk_cur;
 }
 static void tl_done(void *d, struct zwlr_foreign_toplevel_handle_v1 *h) {
   Toplevel *tl = d;
@@ -1454,6 +1502,7 @@ static void mgr_toplevel(void *d, struct zwlr_foreign_toplevel_manager_v1 *m,
                          struct zwlr_foreign_toplevel_handle_v1 *h) {
   Toplevel *tl = g_new0(Toplevel, 1);
   tl->h = h;
+  tl->desk = desk_cur;
   toplevels = g_list_append(toplevels, tl);
   zwlr_foreign_toplevel_handle_v1_add_listener(h, &tl_listener, tl);
 }
@@ -1799,6 +1848,7 @@ static gboolean refresh_shelf(gpointer d) {
   gboolean any_max = FALSE;
   for (GList *l = toplevels; l; l = l->next) {
     Toplevel *t = l->data;
+    if (t->desk != desk_cur) continue;   /* autre bureau virtuel */
     if (t->maximized && !t->minimized) any_max = TRUE;
     GDesktopAppInfo *a = app_for_window(t->app_id, all);
     const char *key = a ? g_app_info_get_id(G_APP_INFO(a)) : t->app_id ? t->app_id : "";
@@ -2071,7 +2121,13 @@ static void fit_qs(void) {
   gdk_monitor_get_geometry(main_monitor(), &g);
   int bar = bar_win ? gtk_widget_get_allocated_height(bar_win) : 28;
   int shelf = shelf_win ? gtk_widget_get_allocated_height(shelf_win) : 56;
-  gtk_scrolled_window_set_max_content_height(GTK_SCROLLED_WINDOW(qs_scroll), MAX(300, g.height - bar - shelf - 4));
+  int maxh = MAX(300, g.height - bar - shelf - 4), nat = 0;
+  /* La fenetre layer-shell prend la hauteur MINIMALE de son contenu : sans
+     minimum, le volet se reduisait a son en-tete. Minimum = hauteur
+     naturelle du contenu, plafonnee a l'espace disponible. */
+  gtk_widget_get_preferred_height(gtk_bin_get_child(GTK_BIN(gtk_bin_get_child(GTK_BIN(qs_scroll)))), NULL, &nat);
+  gtk_scrolled_window_set_max_content_height(GTK_SCROLLED_WINDOW(qs_scroll), maxh);
+  gtk_scrolled_window_set_min_content_height(GTK_SCROLLED_WINDOW(qs_scroll), MIN(nat, maxh));
 }
 
 #include "lumina-extras.c"

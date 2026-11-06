@@ -14,7 +14,7 @@ static const char *CSS =
   "button { background-image: none; border: none; box-shadow: none; text-shadow: none; outline: none; }\n"
   "window.lumina-camera { background: #000000; }\n"
   "window.lumina-camera.csd decoration { border-radius: 16px; box-shadow: 0 6px 22px alpha(black, 0.3); }\n"
-  ".header { background: #111413; color: #e6e9e7; border: none; box-shadow: none; padding: 4px 8px; min-height: 36px; border-radius: 16px 16px 0 0; }\n"
+  ".header { background: #111413; color: #e6e9e7; border: none; box-shadow: none; padding: 2px 8px; min-height: 40px; border-radius: 16px 16px 0 0; }\n"
   ".header button.titlebutton { background: transparent; border-radius: 16px; min-width: 30px; min-height: 30px; color: #c4c9c6; }\n"
   ".apptitle { font-size: 15px; color: #e6e9e7; padding-left: 8px; }\n"
   ".bar { background: #111413; padding: 14px; }\n"

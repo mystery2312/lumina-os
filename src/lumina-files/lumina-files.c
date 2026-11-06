@@ -31,7 +31,7 @@ static const char *CSS =
   "  box-shadow: 0 6px 22px alpha(black, 0.18), 0 0 0 1px alpha(black, 0.06); }\n"
   "window.lumina-files.maximized, window.lumina-files.tiled,\n"
   "window.lumina-files.maximized decoration, window.lumina-files.tiled decoration { border-radius: 0; }\n"
-  ".header { background: @surface; border: none; box-shadow: none; padding: 6px 8px 4px 8px; min-height: 44px;\n"
+  ".header { background: @surface; border: none; box-shadow: none; padding: 2px 8px; min-height: 40px;\n"
   "          border-radius: 16px 16px 0 0; }\n"
   "window.maximized .header, window.tiled .header { border-radius: 0; }\n"
   ".header button.titlebutton { background: transparent; border-radius: 16px; min-width: 32px; min-height: 32px;\n"
@@ -130,6 +130,7 @@ static GtkWidget *win, *crumbs, *back_btn, *fwd_btn, *search_entry, *view_btn, *
 static GtkWidget *empty_box, *empty_l, *snack_rev, *snack_l, *snack_btn;
 static Icon *view_ic;
 static GFile *cur, *home, *trash;
+static char *select_path;   /* --select : element a selectionner a l'ouverture */
 /* Mode « choisir » (selecteur de fichiers) */
 static gboolean pick_mode, pick_multi, pick_dir;
 static char *pick_save, *pick_title, *pick_filter;
@@ -356,6 +357,21 @@ static void rebuild_view(void) {
   gtk_widget_show_all(flow);
   gtk_flow_box_invalidate_filter(GTK_FLOW_BOX(flow));
   update_empty();
+  /* « Afficher dans le dossier » : l'element demande est selectionne */
+  if (select_path) {
+    GList *kids = gtk_container_get_children(GTK_CONTAINER(flow));
+    for (GList *l = kids; l; l = l->next) {
+      Entry *e = g_object_get_data(G_OBJECT(l->data), "entry");
+      char *p = e ? g_file_get_path(e->file) : NULL;
+      if (p && !strcmp(p, select_path)) {
+        gtk_flow_box_select_child(GTK_FLOW_BOX(flow), l->data);
+        gtk_widget_grab_focus(l->data);
+      }
+      g_free(p);
+    }
+    g_list_free(kids);
+    g_clear_pointer(&select_path, g_free);
+  }
 }
 
 static gint entry_cmp(gconstpointer a, gconstpointer b) {
@@ -1533,6 +1549,7 @@ static void pick_parse(int argc, char **argv) {
     else if (!strcmp(argv[i], "--title") && i + 1 < argc) pick_title = argv[++i];
     else if (!strcmp(argv[i], "--filter") && i + 1 < argc) pick_filter = argv[++i];
     else if (!strcmp(argv[i], "--folder") && i + 1 < argc) { i++; }
+    else if (!strcmp(argv[i], "--select") && i + 1 < argc) select_path = g_strdup(argv[++i]);
   }
 }
 static const char *pick_folder(int argc, char **argv) {

@@ -76,7 +76,6 @@ static void show_popup(GtkWidget *w) {
 /* ------------------------------------------------------------------ */
 /* labwc n'expose pas ses bureaux aux clients : on passe par ses
    raccourcis (Windows + 1..4), tapes par le clavier virtuel de wtype. */
-static int desk_cur;
 static void on_desk(GtkButton *b, gpointer d) {
   close_panels();
   desk_cur = GPOINTER_TO_INT(d);
@@ -107,6 +106,7 @@ static void fill_overview(void) {
   int n = 0;
   for (GList *l = toplevels; l; l = l->next) {
     Toplevel *t = l->data;
+    if (t->desk != desk_cur) continue;   /* vue d'ensemble : ce bureau-ci */
     GDesktopAppInfo *a = app_for_window(t->app_id, all);
     const char *name = t->title && *t->title ? t->title : a ? g_app_info_get_name(G_APP_INFO(a)) : t->app_id;
     GtkWidget *card = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
@@ -194,6 +194,53 @@ static void on_desk_add(GtkButton *b, gpointer d) {
   desk_count++; save_desks();
   on_desk(NULL, GINT_TO_POINTER(desk_count));
 }
+
+/* Fermer un bureau : ses fenetres rejoignent le bureau voisin, ceux qui
+   suivent se decalent d'un cran. labwc ne deplace que la fenetre active :
+   on active chaque fenetre puis on tape son raccourci Windows+Maj+N. */
+typedef struct { GList *moves; int final_desk; } DeskClose;
+typedef struct { Toplevel *t; int to; } Move;
+static gboolean desk_close_step(gpointer d) {
+  DeskClose *dc = d;
+  if (!dc->moves) {
+    char *k = g_strdup_printf("%d", dc->final_desk);
+    char *argv[] = {"wtype", "-M", "logo", k, "-m", "logo", NULL};
+    spawn_async((const char *const *)argv);
+    g_free(k); g_free(dc);
+    return G_SOURCE_REMOVE;
+  }
+  Move *m = dc->moves->data;
+  dc->moves = g_list_delete_link(dc->moves, dc->moves);
+  if (g_list_find(toplevels, m->t)) {
+    activate(m->t);
+    char *k = g_strdup_printf("%d", m->to);
+    char *argv[] = {"wtype", "-M", "logo", "-M", "shift", k, "-m", "shift", "-m", "logo", NULL};
+    spawn_later(350, g_strdupv(argv));
+    m->t->desk = m->to;
+    g_free(k);
+  }
+  g_free(m);
+  return G_SOURCE_CONTINUE;
+}
+static void on_desk_close(GtkButton *b, gpointer d) {
+  int n = GPOINTER_TO_INT(d);
+  if (desk_count <= 1) return;
+  close_panels();
+  DeskClose *dc = g_new0(DeskClose, 1);
+  int into = n > 1 ? n - 1 : 1;
+  for (GList *l = toplevels; l; l = l->next) {
+    Toplevel *t = l->data;
+    int to = t->desk == n ? into : t->desk > n ? t->desk - 1 : 0;
+    if (!to || to == t->desk) continue;
+    Move *m = g_new0(Move, 1); m->t = t; m->to = to;
+    dc->moves = g_list_append(dc->moves, m);
+  }
+  desk_count--; save_desks();
+  dc->final_desk = MIN(into, desk_count);
+  desk_cur = dc->final_desk;
+  g_timeout_add(800, desk_close_step, dc);
+}
+
 static void fill_desks(void) {
   GList *k = gtk_container_get_children(GTK_CONTAINER(desks_box));
   for (GList *l = k; l; l = l->next) gtk_widget_destroy(l->data);
@@ -215,7 +262,19 @@ static void fill_desks(void) {
     char *tip = g_strdup_printf("Windows + %d · Windows + Maj + %d y envoie la fenêtre active", i, i);
     gtk_widget_set_tooltip_text(b, tip);
     g_signal_connect(b, "clicked", G_CALLBACK(on_desk), GINT_TO_POINTER(i));
-    gtk_container_add(GTK_CONTAINER(desks_box), b);
+    /* Bouton de fermeture par-dessus la vignette (s'il reste un autre bureau) */
+    GtkWidget *ov = gtk_overlay_new();
+    gtk_container_add(GTK_CONTAINER(ov), b);
+    if (desk_count > 1) {
+      GtkWidget *x = gtk_button_new();
+      add_class(x, "deskclose");
+      gtk_widget_set_tooltip_text(x, "Fermer ce bureau (ses fenêtres vont sur le bureau voisin)");
+      gtk_container_add(GTK_CONTAINER(x), icon_new("close", R_ON, 14)->img);
+      gtk_widget_set_halign(x, GTK_ALIGN_END); gtk_widget_set_valign(x, GTK_ALIGN_START);
+      g_signal_connect(x, "clicked", G_CALLBACK(on_desk_close), GINT_TO_POINTER(i));
+      gtk_overlay_add_overlay(GTK_OVERLAY(ov), x);
+    }
+    gtk_container_add(GTK_CONTAINER(desks_box), ov);
     g_free(t); g_free(tip);
   }
   if (desk_count < 4) {
@@ -1597,6 +1656,45 @@ static void register_filechooser(GDBusConnection *c) {
   g_dbus_node_info_unref(info);
 }
 
+
+/* ------------------------------------------------------------------ */
+/* org.freedesktop.FileManager1 : « Afficher dans le dossier » de        */
+/* Chromium (telechargements) et des autres applis ouvre Fichiers, au   */
+/* lieu d'une page « Index de » dans le navigateur.                     */
+/* ------------------------------------------------------------------ */
+static const char *FM_XML =
+  "<node><interface name='org.freedesktop.FileManager1'>"
+  "<method name='ShowFolders'><arg type='as' direction='in'/><arg type='s' direction='in'/></method>"
+  "<method name='ShowItems'><arg type='as' direction='in'/><arg type='s' direction='in'/></method>"
+  "<method name='ShowItemProperties'><arg type='as' direction='in'/><arg type='s' direction='in'/></method>"
+  "</interface></node>";
+static void fm_call(GDBusConnection *c, const char *sender, const char *path, const char *iface,
+                    const char *method, GVariant *params, GDBusMethodInvocation *inv, gpointer d) {
+  GVariantIter *it; const char *startup, *uri;
+  g_variant_get(params, "(as&s)", &it, &startup);
+  while (g_variant_iter_loop(it, "&s", &uri)) {
+    GFile *f = g_file_new_for_uri(uri);
+    char *p = g_file_get_path(f);
+    if (p) {
+      /* Un element : on ouvre son dossier et on le selectionne */
+      gboolean item = strcmp(method, "ShowFolders") != 0;
+      char *dir = item ? g_path_get_dirname(p) : g_strdup(p);
+      const char *argv[] = {"lumina-files", dir, item ? "--select" : NULL, item ? p : NULL, NULL};
+      spawn_async(argv);
+      g_free(dir); g_free(p);
+    }
+    g_object_unref(f);
+  }
+  g_variant_iter_free(it);
+  g_dbus_method_invocation_return_value(inv, NULL);
+}
+static const GDBusInterfaceVTable fm_vtable = { fm_call, NULL, NULL };
+static void on_fm_bus(GDBusConnection *c, const char *name, gpointer d) {
+  GDBusNodeInfo *info = g_dbus_node_info_new_for_xml(FM_XML, NULL);
+  g_dbus_connection_register_object(c, "/org/freedesktop/FileManager1", info->interfaces[0], &fm_vtable, NULL, NULL, NULL);
+  g_dbus_node_info_unref(info);
+}
+
 /* ------------------------------------------------------------------ */
 /* Actions a distance                                                   */
 /* ------------------------------------------------------------------ */
@@ -1628,6 +1726,20 @@ static void shell_call(GDBusConnection *c, const char *sender, const char *path,
     else if (!strcmp(n, "next")) desk_cur = MIN(4, desk_cur + 1);
     else desk_cur = CLAMP(atoi(n), 1, 4);
     if (desk_cur > desk_count) { desk_count = desk_cur; save_desks(); }
+    /* labwc donne le clavier a une fenetre du nouveau bureau AVANT que
+       cette action n'arrive : c'est elle, la fenetre active, qui est ici. */
+    for (GList *l = toplevels; l; l = l->next) { Toplevel *t = l->data; if (t->activated && !t->minimized) t->desk = desk_cur; }
+    schedule_shelf();
+  }
+  /* Fenetre active envoyee sur un autre bureau (Windows + Maj + ...) */
+  else if (g_str_has_prefix(what, "moved-")) {
+    const char *n = what + 6;
+    gboolean follow = g_str_has_suffix(n, "-follow");
+    int to = !strncmp(n, "prev", 4) ? MAX(1, desk_cur - 1) : !strncmp(n, "next", 4) ? MIN(4, desk_cur + 1) : CLAMP(atoi(n), 1, 4);
+    for (GList *l = toplevels; l; l = l->next) { Toplevel *t = l->data; if (t->activated) t->desk = to; }
+    if (to > desk_count) { desk_count = to; save_desks(); }
+    if (follow) desk_cur = to;
+    schedule_shelf();
   }
   g_dbus_method_invocation_return_value(inv, NULL);
 }
@@ -1661,6 +1773,8 @@ static void extras_init(void) {
   build_capbar();
   g_bus_own_name(G_BUS_TYPE_SESSION, "org.luminaos.Shell", G_BUS_NAME_OWNER_FLAGS_NONE,
                  on_shell_bus, NULL, NULL, NULL, NULL);
+  g_bus_own_name(G_BUS_TYPE_SESSION, "org.freedesktop.FileManager1", G_BUS_NAME_OWNER_FLAGS_REPLACE,
+                 on_fm_bus, NULL, NULL, NULL, NULL);
   /* Etats retrouves a l'ouverture de session */
   if (cfg_flag("dnd")) apply_dnd(TRUE);
   if (night_on()) apply_night(TRUE);

@@ -81,16 +81,16 @@
     <!-- Bureaux : Windows + [ / ] change de bureau, + Maj y envoie la fenetre -->
     <keybind key="W-bracketleft"><action name="GoToDesktop" to="left" wrap="no" /><action name="Execute" command="lumina-shell --action at-desk-prev" /></keybind>
     <keybind key="W-bracketright"><action name="GoToDesktop" to="right" wrap="no" /><action name="Execute" command="lumina-shell --action at-desk-next" /></keybind>
-    <keybind key="W-S-bracketleft"><action name="SendToDesktop" to="left" follow="yes" wrap="no" /><action name="Execute" command="lumina-shell --action at-desk-prev" /></keybind>
-    <keybind key="W-S-bracketright"><action name="SendToDesktop" to="right" follow="yes" wrap="no" /><action name="Execute" command="lumina-shell --action at-desk-next" /></keybind>
+    <keybind key="W-S-bracketleft"><action name="Execute" command="lumina-shell --action moved-prev-follow" /><action name="SendToDesktop" to="left" follow="yes" wrap="no" /></keybind>
+    <keybind key="W-S-bracketright"><action name="Execute" command="lumina-shell --action moved-next-follow" /><action name="SendToDesktop" to="right" follow="yes" wrap="no" /></keybind>
     <keybind key="W-1"><action name="GoToDesktop" to="1" /><action name="Execute" command="lumina-shell --action at-desk-1" /></keybind>
     <keybind key="W-2"><action name="GoToDesktop" to="2" /><action name="Execute" command="lumina-shell --action at-desk-2" /></keybind>
     <keybind key="W-3"><action name="GoToDesktop" to="3" /><action name="Execute" command="lumina-shell --action at-desk-3" /></keybind>
     <keybind key="W-4"><action name="GoToDesktop" to="4" /><action name="Execute" command="lumina-shell --action at-desk-4" /></keybind>
-    <keybind key="W-S-1"><action name="SendToDesktop" to="1" follow="no" /></keybind>
-    <keybind key="W-S-2"><action name="SendToDesktop" to="2" follow="no" /></keybind>
-    <keybind key="W-S-3"><action name="SendToDesktop" to="3" follow="no" /></keybind>
-    <keybind key="W-S-4"><action name="SendToDesktop" to="4" follow="no" /></keybind>
+    <keybind key="W-S-1"><action name="Execute" command="lumina-shell --action moved-1" /><action name="SendToDesktop" to="1" follow="no" /></keybind>
+    <keybind key="W-S-2"><action name="Execute" command="lumina-shell --action moved-2" /><action name="SendToDesktop" to="2" follow="no" /></keybind>
+    <keybind key="W-S-3"><action name="Execute" command="lumina-shell --action moved-3" /><action name="SendToDesktop" to="3" follow="no" /></keybind>
+    <keybind key="W-S-4"><action name="Execute" command="lumina-shell --action moved-4" /><action name="SendToDesktop" to="4" follow="no" /></keybind>
     <!-- Vue d'ensemble des fenetres et des bureaux -->
     <keybind key="W-Tab"><action name="Execute" command="lumina-shell --action overview" /></keybind>
     <keybind key="F5" ><action name="Execute" command="lumina-shell --action overview" /></keybind>
