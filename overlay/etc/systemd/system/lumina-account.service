@@ -3,7 +3,8 @@ Description=Compte LuminaOS (nom et mot de passe conserves sur la partition d'et
 # Avant la session et l'ecran de verrouillage : une mise a jour remplace
 # /etc/shadow, on y remet le mot de passe a chaque demarrage.
 Wants=var-lib-lumina.mount
-After=var-lib-lumina.mount
+# Apres logind : lumina-system lui fait recharger sa configuration (capot)
+After=var-lib-lumina.mount systemd-logind.service
 Before=greetd.service
 
 [Service]

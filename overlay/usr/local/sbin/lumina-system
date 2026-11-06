@@ -24,7 +24,12 @@ apply_lid() {
   mkdir -p /run/systemd/logind.conf.d
   printf '[Login]\nHandleLidSwitch=%s\nHandleLidSwitchExternalPower=%s\n' "$v" "$v" \
     > /run/systemd/logind.conf.d/50-lumina.conf
-  systemctl kill -s HUP systemd-logind 2>/dev/null || true
+  # Rechargement seulement si logind tourne deja (sinon il lira ce fichier en
+  # demarrant). Un SIGHUP envoye pendant son demarrage le tuait : plus
+  # d'ecran de connexion (vu au premier demarrage d'une cle USB).
+  if systemctl is-active -q systemd-logind; then
+    systemctl reload systemd-logind 2>/dev/null || true
+  fi
 }
 
 case "${1:-}" in
