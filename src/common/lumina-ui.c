@@ -98,6 +98,91 @@ static void build_palettes(double h, double c) {
 
 static char *conf_file(const char *name) { return g_build_filename(g_get_user_config_dir(), "lumina", name, NULL); }
 
+
+/* ------------------------------------------------------------------ */
+/* Fonds d'ecran LuminaOS : dessines (aucune image a telecharger), aux  */
+/* couleurs du theme ; ~/.config/lumina/wallstyle contient le numero.   */
+/* ------------------------------------------------------------------ */
+const char *LUMINA_WALL_NAMES[LUMINA_WALL_COUNT] = {"Aube", "Aurore", "Vagues", "Galets", "Nuit"};
+
+int lumina_ui_wall_style(void) {
+  char *p = conf_file("wallstyle"), *t = NULL;
+  g_file_get_contents(p, &t, NULL, NULL);
+  int v = t ? atoi(t) : 0;
+  g_free(p); g_free(t);
+  return CLAMP(v, 0, LUMINA_WALL_COUNT - 1);
+}
+void lumina_ui_set_wall_style(int v) {
+  char *p = conf_file("wallstyle"), *t = g_strdup_printf("%d\n", v);
+  g_file_set_contents(p, t, -1, NULL);
+  g_free(p); g_free(t);
+}
+
+static void wblob(cairo_t *cr, double cx, double cy, double rx, double ry, const char *hex, double a) {
+  double r, g, b; hex_rgb(hex, &r, &g, &b);
+  cairo_save(cr);
+  cairo_translate(cr, cx, cy); cairo_scale(cr, rx, ry);
+  cairo_pattern_t *p = cairo_pattern_create_radial(0, 0, 0, 0, 0, 1);
+  cairo_pattern_add_color_stop_rgba(p, 0, r, g, b, a);
+  cairo_pattern_add_color_stop_rgba(p, 0.7, r, g, b, 0);
+  cairo_set_source(cr, p);
+  cairo_arc(cr, 0, 0, 1, 0, 2 * G_PI); cairo_fill(cr);
+  cairo_pattern_destroy(p);
+  cairo_restore(cr);
+}
+static void wfill(cairo_t *cr, const char *hex) { double r, g, b; hex_rgb(hex, &r, &g, &b); cairo_set_source_rgb(cr, r, g, b); cairo_paint(cr); }
+
+void lumina_ui_draw_wallpaper(cairo_t *cr, double W, double H, int style) {
+  double r, g, b;
+  switch (style) {
+    case 1: {  /* Aurore : grand degrade diagonal primaire -> tertiaire */
+      cairo_pattern_t *p = cairo_pattern_create_linear(0, H, W, 0);
+      hex_rgb(P->wall_a, &r, &g, &b); cairo_pattern_add_color_stop_rgb(p, 0, r, g, b);
+      hex_rgb(P->wall_c, &r, &g, &b); cairo_pattern_add_color_stop_rgb(p, 0.55, r, g, b);
+      hex_rgb(P->wall_b, &r, &g, &b); cairo_pattern_add_color_stop_rgb(p, 1, r, g, b);
+      cairo_set_source(cr, p); cairo_paint(cr); cairo_pattern_destroy(p);
+      wblob(cr, W * 0.7, H * 0.35, W * 0.45, H * 0.5, P->pri_c, 0.55);
+      break;
+    }
+    case 2: {  /* Vagues : bandes ondulees superposees */
+      wfill(cr, P->wall_c);
+      const char *cols[] = {P->wall_b, P->wall_a, P->pri_c, P->sec_c};
+      for (int i = 0; i < 4; i++) {
+        hex_rgb(cols[i], &r, &g, &b);
+        cairo_set_source_rgba(cr, r, g, b, 0.55 + 0.1 * i);
+        double base = H * (0.45 + 0.13 * i), amp = H * (0.06 - 0.008 * i);
+        cairo_move_to(cr, 0, H);
+        for (double x = 0; x <= W; x += W / 60) cairo_line_to(cr, x, base + amp * sin(x / W * 2 * G_PI * (1.2 + 0.3 * i) + i));
+        cairo_line_to(cr, W, H); cairo_close_path(cr); cairo_fill(cr);
+      }
+      break;
+    }
+    case 3: {  /* Galets : disques flous a la Material You */
+      wfill(cr, P->wall_c);
+      static const double G[][4] = {{0.15, 0.25, 0.22, 0}, {0.55, 0.15, 0.16, 1}, {0.85, 0.55, 0.26, 2},
+                                    {0.35, 0.75, 0.2, 1}, {0.7, 0.9, 0.14, 0}, {0.05, 0.85, 0.12, 2}};
+      const char *cols[] = {P->wall_a, P->wall_b, P->pri_c};
+      for (guint i = 0; i < G_N_ELEMENTS(G); i++) {
+        double R = MIN(W, H) * G[i][2];
+        hex_rgb(cols[(int)G[i][3]], &r, &g, &b);
+        cairo_set_source_rgba(cr, r, g, b, 0.85);
+        cairo_arc(cr, W * G[i][0], H * G[i][1], R, 0, 2 * G_PI); cairo_fill(cr);
+      }
+      break;
+    }
+    case 4: {  /* Nuit : sombre, une lueur de la couleur du theme */
+      wfill(cr, "#0d1210");
+      wblob(cr, W * 0.2, H * 0.9, W * 0.7, H * 0.8, DARK.wall_a, 0.9);
+      wblob(cr, W * 0.9, H * 0.1, W * 0.5, H * 0.6, P->ter, 0.35);
+      break;
+    }
+    default:   /* Aube : le fond d'origine */
+      wfill(cr, P->wall_c);
+      wblob(cr, W * 0.18, H * 0.88, W * 0.60, H * 0.70, P->wall_a, 1);
+      wblob(cr, W * 0.88, H * 0.12, W * 0.55, H * 0.65, P->wall_b, 1);
+  }
+}
+
 char *lumina_ui_wallpaper_path(void) {
   char *p = conf_file("wallpaper");
   if (g_file_test(p, G_FILE_TEST_IS_REGULAR)) return p;
@@ -356,6 +441,10 @@ static void apply_css(void) {
   DEF("sec_c", P->sec_c); DEF("on_sec_c", P->on_sec_c); DEF("ter", P->ter); DEF("ter_c", P->ter_c);
   DEF("on_ter_c", P->on_ter_c); DEF("bar_solid", P->bar_solid);
 #undef DEF
+  /* Fluidite : survols et changements d'etat en douceur partout */
+  g_string_append(s, "button, row, flowboxchild, entry, switch, .tile, .slot, .card {\n"
+                     "  transition: background-color 160ms ease-out, color 160ms ease-out,\n"
+                     "              box-shadow 200ms ease-out, opacity 160ms ease-out; }\n");
   g_string_append(s, app_css);
   gtk_css_provider_load_from_data(css, s->str, -1, NULL);
   g_string_free(s, TRUE);
@@ -386,7 +475,7 @@ static void on_theme_file(GFileMonitor *m, GFile *f, GFile *o, GFileMonitorEvent
   GFile *t = (ev == G_FILE_MONITOR_EVENT_RENAMED && o) ? o : f;
   char *n = g_file_get_basename(t);
   gboolean ours = !g_strcmp0(n, "theme") || !g_strcmp0(n, "accent") || !g_strcmp0(n, "wallpaper") ||
-                  !g_strcmp0(n, "contrast");
+                  !g_strcmp0(n, "contrast") || !g_strcmp0(n, "wallstyle");
   g_free(n);
   if (!ours) return;
   load_accent();

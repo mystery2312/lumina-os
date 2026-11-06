@@ -309,6 +309,24 @@ static void on_open(GtkWidget *w, gpointer d) {
   g_object_unref(fc);
 }
 
+/* Glisser-deposer : deposer un fichier l'ouvre ; l'image affichee se
+   glisse vers une autre appli (Fichiers, site web, mail...). */
+static const GtkTargetEntry URI_T[] = {{"text/uri-list", 0, 0}};
+static void on_drop(GtkWidget *w, GdkDragContext *c, gint x, gint y, GtkSelectionData *sd, guint info, guint t, gpointer d) {
+  char **uris = gtk_selection_data_get_uris(sd);
+  char *p = uris && uris[0] ? g_filename_from_uri(uris[0], NULL, NULL) : NULL;
+  if (p && kind_of(p) != K_NONE) { scan_folder(p); show_current(); }
+  g_free(p); g_strfreev(uris);
+  gtk_drag_finish(c, TRUE, FALSE, t);
+}
+static void on_drag_get(GtkWidget *w, GdkDragContext *c, GtkSelectionData *sd, guint info, guint t, gpointer d) {
+  const char *p = cur_path();
+  if (!p) return;
+  char *uris[] = {g_filename_to_uri(p, NULL, NULL), NULL};
+  gtk_selection_data_set_uris(sd, uris);
+  g_free(uris[0]);
+}
+
 static gboolean fullscreen;
 static void toggle_fullscreen(void) {
   fullscreen = !fullscreen;
@@ -356,6 +374,10 @@ static GtkWidget *rbtn(const char *glyph, const char *tip, GCallback cb, const c
   return b;
 }
 
+static void on_info_changed(GObject *o, GParamSpec *ps, gpointer d) {
+  gtk_widget_set_visible(GTK_WIDGET(o), *gtk_label_get_text(GTK_LABEL(o)) != 0);
+}
+
 int main(int argc, char **argv) {
   g_set_prgname("lumina-gallery");
   gst_init(&argc, &argv);
@@ -382,6 +404,10 @@ int main(int argc, char **argv) {
   gtk_widget_set_margin_start(info_l, 8);
   gtk_container_add(GTK_CONTAINER(tv), title_l);
   gtk_container_add(GTK_CONTAINER(tv), info_l);
+  /* sous-titre masque quand il est vide : le titre reste centre */
+  gtk_widget_set_valign(tv, GTK_ALIGN_CENTER);
+  gtk_widget_set_no_show_all(info_l, TRUE);
+  g_signal_connect(info_l, "notify::label", G_CALLBACK(on_info_changed), NULL);
   gtk_header_bar_pack_start(GTK_HEADER_BAR(hb), tv);
   gtk_header_bar_set_custom_title(GTK_HEADER_BAR(hb), gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0));
   gtk_header_bar_pack_end(GTK_HEADER_BAR(hb), rbtn("fullscreen", "Plein écran (F)", G_CALLBACK(on_full), NULL));
@@ -464,6 +490,10 @@ int main(int argc, char **argv) {
   gtk_widget_set_no_show_all(controls, TRUE);
   gtk_overlay_add_overlay(GTK_OVERLAY(ov), controls);
   gtk_container_add(GTK_CONTAINER(win), ov);
+  gtk_drag_dest_set(win, GTK_DEST_DEFAULT_ALL, URI_T, 1, GDK_ACTION_COPY);
+  g_signal_connect(win, "drag-data-received", G_CALLBACK(on_drop), NULL);
+  gtk_drag_source_set(img_area, GDK_BUTTON1_MASK, URI_T, 1, GDK_ACTION_COPY);
+  g_signal_connect(img_area, "drag-data-get", G_CALLBACK(on_drag_get), NULL);
   gtk_widget_show_all(win);
 
   if (argc > 1) {

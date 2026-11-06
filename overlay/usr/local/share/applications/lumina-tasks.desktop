@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Gestionnaire de tâches
+Comment=Mémoire et processeur utilisés par chaque appli
+Exec=lumina-tasks
+StartupWMClass=lumina-tasks
+X-Lumina-Glyph=monitor
+X-Lumina-Color=#3c4043
+X-Lumina-Kind=Système

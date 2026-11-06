@@ -14,5 +14,9 @@
     "file:///media",
     "file:///run/media",
     "file:///tmp"
-  ]
+  ],
+  "AutomaticDownloadsAllowedForUrls": [],
+  "DefaultInsecureContentSetting": 2,
+  "HttpsOnlyMode": "allowed",
+  "BlockExternalExtensions": true
 }

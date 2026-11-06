@@ -9,6 +9,7 @@
 char *read_file(const char *path);                       /* contenu sans blancs autour, ou NULL */
 char *run_argv(const char *const *argv, int *status);    /* sortie, sans couleurs ANSI */
 void spawn_async(const char *const *argv);
+char *battery_eta(void);                                 /* « environ 3 h 10 restantes » ou NULL */
 
 /* Wi-Fi (iwd). dev : interface, ex. "wlan0" ; NULL si pas de carte. */
 typedef struct { char *ssid, *security; int signal; gboolean current; } Net;

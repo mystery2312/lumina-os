@@ -59,6 +59,9 @@ systemctl enable lumina-mglru.service
 systemctl enable lumina-update.timer
 systemctl enable lumina-boot-ok.service
 systemctl enable lumina-grow.service
+# Securite : pare-feu actif des le demarrage, AppArmor
+systemctl enable nftables.service
+systemctl enable apparmor.service 2>/dev/null || true
 systemctl enable lumina-powerwash.service
 systemctl enable cups.service cups-browsed.service avahi-daemon.service 2>/dev/null || true
 systemctl enable seatd.service

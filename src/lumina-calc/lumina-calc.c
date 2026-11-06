@@ -197,6 +197,7 @@ int main(int argc, char **argv) {
   res_l = label("0", "result", 1);
   gtk_label_set_ellipsize(GTK_LABEL(res_l), PANGO_ELLIPSIZE_START);
   gtk_label_set_selectable(GTK_LABEL(res_l), TRUE);
+  gtk_widget_set_can_focus(res_l, FALSE);   /* selection a la souris seulement, pas tout surligne a l ouverture */
   gtk_container_add(GTK_CONTAINER(disp), expr_l);
   gtk_container_add(GTK_CONTAINER(disp), res_l);
   gtk_container_add(GTK_CONTAINER(v), disp);

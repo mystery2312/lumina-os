@@ -68,6 +68,7 @@ static void show_popup(GtkWidget *w) {
   close_panels();
   gtk_widget_show(scrim);
   gtk_widget_show(w);
+  anim_in(w);
   gtk_window_present(GTK_WINDOW(w));
 }
 
@@ -97,6 +98,37 @@ static void on_ov_close(GtkButton *b, gpointer d) {
   if (card) gtk_widget_destroy(gtk_widget_get_parent(card));
 }
 static gboolean on_ov_bg(GtkWidget *w, GdkEventButton *e, gpointer d) { close_panels(); return TRUE; }
+
+
+static const GtkTargetEntry WIN_TARGET[] = {{"application/x-lumina-window", GTK_TARGET_SAME_APP, 0}};
+static void on_win_drag_get(GtkWidget *w, GdkDragContext *c, GtkSelectionData *sd, guint info, guint t, gpointer tl) {
+  char *s = g_strdup_printf("%p", tl);
+  gtk_selection_data_set(sd, gtk_selection_data_get_target(sd), 8, (const guchar *)s, strlen(s));
+  g_free(s);
+}
+static void fill_overview(void);
+static void fill_desks(void);
+static gboolean ov_refill(gpointer d) { if (ov_win && gtk_widget_get_visible(ov_win)) { fill_overview(); fill_desks(); gtk_widget_queue_draw(ov_win); } return G_SOURCE_REMOVE; }
+static void on_desk_drop(GtkWidget *w, GdkDragContext *c, gint x, gint y, GtkSelectionData *sd, guint info, guint tm, gpointer d) {
+  int n = GPOINTER_TO_INT(d);
+  char *s = g_strndup((const char *)gtk_selection_data_get_data(sd), gtk_selection_data_get_length(sd));
+  for (GList *l = toplevels; l; l = l->next) {
+    Toplevel *t = l->data;
+    char *p = g_strdup_printf("%p", t);
+    if (!strcmp(p, s) && t->desk != n) {
+      activate(t);
+      char *k = g_strdup_printf("%d", n);
+      char *argv[] = {"wtype", "-M", "logo", "-M", "shift", k, "-m", "shift", "-m", "logo", NULL};
+      spawn_later(200, g_strdupv(argv));
+      t->desk = n;
+      g_free(k);
+      g_timeout_add(700, ov_refill, NULL);
+    }
+    g_free(p);
+  }
+  g_free(s);
+  gtk_drag_finish(c, TRUE, FALSE, tm);
+}
 
 static void fill_overview(void) {
   GList *kids = gtk_container_get_children(GTK_CONTAINER(ov_flow));
@@ -136,6 +168,9 @@ static void fill_overview(void) {
     gtk_container_add(GTK_CONTAINER(body), big);
     if (t->minimized) gtk_widget_set_tooltip_text(body, "Fenêtre réduite");
     g_signal_connect(body, "clicked", G_CALLBACK(on_ov_card), t);
+    /* Glisser la carte sur la vignette d'un bureau : la fenetre y va */
+    gtk_drag_source_set(body, GDK_BUTTON1_MASK, WIN_TARGET, 1, GDK_ACTION_MOVE);
+    g_signal_connect(body, "drag-data-get", G_CALLBACK(on_win_drag_get), t);
     gtk_container_add(GTK_CONTAINER(card), body);
     gtk_flow_box_insert(GTK_FLOW_BOX(ov_flow), card, -1);
     if (a) g_object_unref(a);
@@ -241,6 +276,30 @@ static void on_desk_close(GtkButton *b, gpointer d) {
   g_timeout_add(800, desk_close_step, dc);
 }
 
+/* Noms des bureaux (~/.config/lumina/desk-names, un par ligne) */
+static char *desk_name(int i) {
+  char *p = cfg_path("desk-names"), *c = read_file(p);
+  char **l = c ? g_strsplit(c, "\n", -1) : NULL;
+  char *r = (l && (int)g_strv_length(l) >= i && *l[i - 1]) ? g_strdup(l[i - 1]) : g_strdup_printf("Bureau %d", i);
+  g_strfreev(l); g_free(c); g_free(p);
+  return r;
+}
+static void on_desk_rename(GtkEntry *e, gpointer d) {
+  int i = GPOINTER_TO_INT(d);
+  char *p = cfg_path("desk-names"), *c = read_file(p);
+  char **l = c ? g_strsplit(c, "\n", -1) : NULL;
+  GString *o = g_string_new(NULL);
+  for (int k = 1; k <= 4; k++) {
+    const char *v = k == i ? gtk_entry_get_text(e) : (l && (int)g_strv_length(l) >= k ? l[k - 1] : "");
+    char *clean = g_strdup(v); g_strdelimit(clean, "\n", ' ');
+    g_string_append_printf(o, "%s\n", g_strstrip(clean));
+    g_free(clean);
+  }
+  g_file_set_contents(p, o->str, -1, NULL);
+  g_string_free(o, TRUE); g_strfreev(l); g_free(c); g_free(p);
+}
+static gboolean on_desk_name_out(GtkWidget *w, GdkEvent *e, gpointer d) { on_desk_rename(GTK_ENTRY(w), d); return FALSE; }
+
 static void fill_desks(void) {
   GList *k = gtk_container_get_children(GTK_CONTAINER(desks_box));
   for (GList *l = k; l; l = l->next) gtk_widget_destroy(l->data);
@@ -256,12 +315,13 @@ static void fill_desks(void) {
     add_class(a, "deskthumb");
     g_signal_connect(a, "draw", G_CALLBACK(draw_desk_thumb), GINT_TO_POINTER(i));
     gtk_container_add(GTK_CONTAINER(v), a);
-    char *t = g_strdup_printf("Bureau %d", i);
-    gtk_container_add(GTK_CONTAINER(v), label(t, "deskname", 0.5));
     gtk_container_add(GTK_CONTAINER(b), v);
+    char *t = desk_name(i);
     char *tip = g_strdup_printf("Windows + %d · Windows + Maj + %d y envoie la fenêtre active", i, i);
     gtk_widget_set_tooltip_text(b, tip);
     g_signal_connect(b, "clicked", G_CALLBACK(on_desk), GINT_TO_POINTER(i));
+    gtk_drag_dest_set(b, GTK_DEST_DEFAULT_ALL, WIN_TARGET, 1, GDK_ACTION_MOVE);
+    g_signal_connect(b, "drag-data-received", G_CALLBACK(on_desk_drop), GINT_TO_POINTER(i));
     /* Bouton de fermeture par-dessus la vignette (s'il reste un autre bureau) */
     GtkWidget *ov = gtk_overlay_new();
     gtk_container_add(GTK_CONTAINER(ov), b);
@@ -274,7 +334,20 @@ static void fill_desks(void) {
       g_signal_connect(x, "clicked", G_CALLBACK(on_desk_close), GINT_TO_POINTER(i));
       gtk_overlay_add_overlay(GTK_OVERLAY(ov), x);
     }
-    gtk_container_add(GTK_CONTAINER(desks_box), ov);
+    /* Nom modifiable sous la vignette (Entree ou clic ailleurs : enregistre) */
+    GtkWidget *col = gtk_box_new(GTK_ORIENTATION_VERTICAL, 2);
+    gtk_container_add(GTK_CONTAINER(col), ov);
+    GtkWidget *ne = gtk_entry_new();
+    add_class(ne, "deskname");
+    gtk_entry_set_text(GTK_ENTRY(ne), t);
+    gtk_entry_set_alignment(GTK_ENTRY(ne), 0.5);
+    gtk_entry_set_width_chars(GTK_ENTRY(ne), 12);
+    gtk_entry_set_max_length(GTK_ENTRY(ne), 24);
+    gtk_widget_set_tooltip_text(ne, "Cliquez pour renommer ce bureau");
+    g_signal_connect(ne, "activate", G_CALLBACK(on_desk_rename), GINT_TO_POINTER(i));
+    g_signal_connect(ne, "focus-out-event", G_CALLBACK(on_desk_name_out), GINT_TO_POINTER(i));
+    gtk_container_add(GTK_CONTAINER(col), ne);
+    gtk_container_add(GTK_CONTAINER(desks_box), col);
     g_free(t); g_free(tip);
   }
   if (desk_count < 4) {
@@ -332,8 +405,7 @@ static void build_overview(void) {
   gtk_container_add(GTK_CONTAINER(v), ov_empty);
   gtk_container_add(GTK_CONTAINER(eb), v);
   gtk_overlay_add_overlay(GTK_OVERLAY(ovl), eb);
-  gtk_container_add(GTK_CONTAINER(ov_win), ovl);
-  gtk_widget_show_all(ovl);
+  gtk_widget_show_all(anim_wrap(ov_win, ovl));
 }
 
 static void overview_toggle(void) {
@@ -1290,6 +1362,8 @@ static void on_tote_open(GtkButton *b, gpointer path) {
   if (uri) g_app_info_launch_default_for_uri(uri, NULL, NULL);
   g_free(uri);
 }
+static void on_tote_drag_begin(GtkWidget *w, GdkDragContext *c, gpointer d) { gtk_widget_hide(scrim); }
+static void on_tote_drag_end(GtkWidget *w, GdkDragContext *c, gpointer d) { close_panels(); }
 static void on_tote_drag_get(GtkWidget *w, GdkDragContext *c, GtkSelectionData *sd, guint info, guint t, gpointer path) {
   char *uris[] = {g_filename_to_uri(path, NULL, NULL), NULL};
   gtk_selection_data_set_uris(sd, uris);
@@ -1328,6 +1402,9 @@ static void fill_tote(void) {
     g_signal_connect_data(b, "clicked", G_CALLBACK(on_tote_open), p, (GClosureNotify)(void (*)(void))g_free, 0);
     gtk_drag_source_set(b, GDK_BUTTON1_MASK, TOTE_TARGET, 1, GDK_ACTION_COPY);
     g_signal_connect_data(b, "drag-data-get", G_CALLBACK(on_tote_drag_get), g_strdup(r->path), (GClosureNotify)(void (*)(void))g_free, 0);
+    /* le voile couvrirait les fenetres et recevrait le depot */
+    g_signal_connect(b, "drag-begin", G_CALLBACK(on_tote_drag_begin), NULL);
+    g_signal_connect(b, "drag-end", G_CALLBACK(on_tote_drag_end), NULL);
     gtk_flow_box_insert(GTK_FLOW_BOX(tote_grid), b, -1);
     g_free(base);
   }
@@ -1525,8 +1602,17 @@ static void extras_shelf_button(GtkWidget *b, const char *key, gboolean has_app)
   g_signal_connect_data(b, "drag-data-received", G_CALLBACK(on_shelf_drop), g_strdup(key), (GClosureNotify)(void (*)(void))g_free, 0);
 }
 
+static void on_shelf_box_drop(GtkWidget *w, GdkDragContext *c, gint x, gint y, GtkSelectionData *sd, guint info, guint t, gpointer d) {
+  char *id = g_strndup((const char *)gtk_selection_data_get_data(sd), gtk_selection_data_get_length(sd));
+  if (*id && !is_pinned(id)) set_pinned(id, TRUE);
+  g_free(id);
+  gtk_drag_finish(c, TRUE, FALSE, t);
+}
 static void extras_shelf(GtkWidget *box) {
   shelf_box = box;
+  /* Glisser une appli du lanceur sur l'etagere l'y epingle */
+  gtk_drag_dest_set(box, GTK_DEST_DEFAULT_ALL, SHELF_TARGET, 1, GDK_ACTION_COPY | GDK_ACTION_MOVE);
+  g_signal_connect(box, "drag-data-received", G_CALLBACK(on_shelf_box_drop), NULL);
   /* Fichiers recents, au bout de l'etagere */
   tote_btn = gtk_button_new();
   add_class(tote_btn, "slot");

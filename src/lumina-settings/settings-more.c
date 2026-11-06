@@ -530,6 +530,25 @@ static void on_lid(GtkComboBox *c, gpointer d) {
 
 static void build_power(void) {
   GtkWidget *p = page_box("energie", "Énergie");
+  /* Batterie : niveau, etat et temps restant */
+  GDir *bd = g_dir_open("/sys/class/power_supply", 0, NULL);
+  const char *bn;
+  while (bd && (bn = g_dir_read_name(bd))) {
+    char *tp = g_strdup_printf("/sys/class/power_supply/%s/type", bn), *t = read_file(tp);
+    if (!g_strcmp0(t, "Battery")) {
+      char *cp = g_strdup_printf("/sys/class/power_supply/%s/capacity", bn), *c = read_file(cp);
+      char *sp = g_strdup_printf("/sys/class/power_supply/%s/status", bn), *st = read_file(sp);
+      char *eta = battery_eta();
+      const char *state = !g_strcmp0(st, "Charging") ? "En charge" : !g_strcmp0(st, "Full") ? "Chargée" : "Sur batterie";
+      char *title = g_strdup_printf("Batterie : %s %%", c ? c : "?"), *sub = g_strdup_printf("%s%s%s", state, eta ? " · " : "", eta ? eta : "");
+      row(group(p, NULL), title, sub, NULL, NULL);
+      g_free(cp); g_free(c); g_free(sp); g_free(st); g_free(eta); g_free(title); g_free(sub);
+      g_free(tp); g_free(t);
+      break;
+    }
+    g_free(tp); g_free(t);
+  }
+  if (bd) g_dir_close(bd);
   GtkWidget *g = group(p, NULL);
   char *lid = read_file("/var/lib/lumina/config/lid");
   int li = 0;
@@ -606,6 +625,7 @@ static void build_shortcuts(void) {
     {"Windows", "Ouvrir le lanceur d'applications", NULL}, {"Windows + A", "Réglages rapides", NULL},
     {"Windows + L", "Verrouiller l'écran", NULL}, {"Windows + V", "Historique du presse-papiers", NULL},
     {"Windows + .", "Emojis", NULL}, {"Ctrl + Alt + /", "Cette liste de raccourcis", NULL},
+    {"Windows + Échap", "Gestionnaire de tâches", NULL},
     {"Fenêtres et bureaux", NULL, NULL},
     {"Windows + Tab ou F5", "Vue d'ensemble des fenêtres", NULL}, {"Alt + Tab", "Passer d'une fenêtre à l'autre", NULL},
     {"Alt + [  /  Alt + ]", "Écran partagé : fenêtre à gauche / à droite", NULL},

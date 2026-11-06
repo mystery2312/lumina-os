@@ -50,6 +50,13 @@ void lumina_ui_set_accent(const char *v);        /* NULL : par defaut */
 char *lumina_ui_wallpaper_path(void);            /* photo choisie, ou NULL */
 gboolean lumina_ui_image_hue(const char *path, double *hue);
 
+/* Fonds d'ecran LuminaOS dessines aux couleurs du theme */
+#define LUMINA_WALL_COUNT 5
+extern const char *LUMINA_WALL_NAMES[LUMINA_WALL_COUNT];
+int lumina_ui_wall_style(void);
+void lumina_ui_set_wall_style(int v);
+void lumina_ui_draw_wallpaper(cairo_t *cr, double W, double H, int style);
+
 void add_class(GtkWidget *w, const char *c);
 void set_class(GtkWidget *w, const char *c, gboolean on);
 GtkWidget *label(const char *text, const char *cls, float xalign);

@@ -406,6 +406,14 @@ static void on_menu(GtkWidget *b, gpointer x) {
   gtk_menu_popup_at_widget(GTK_MENU(m), b, GDK_GRAVITY_SOUTH_EAST, GDK_GRAVITY_NORTH_EAST, NULL);
 }
 
+/* Deposer des fichiers sur la fenetre : ils s'ouvrent */
+static void on_drop(GtkWidget *w, GdkDragContext *c, gint x, gint y, GtkSelectionData *sd, guint info, guint t, gpointer d) {
+  char **uris = gtk_selection_data_get_uris(sd);
+  for (char **u = uris; u && *u; u++) { char *p = g_filename_from_uri(*u, NULL, NULL); if (p) open_path(p); g_free(p); }
+  g_strfreev(uris);
+  gtk_drag_finish(c, TRUE, FALSE, t);
+}
+
 int main(int argc, char **argv) {
   g_set_prgname("lumina-text");
   gtk_init(&argc, &argv);
@@ -503,6 +511,9 @@ int main(int argc, char **argv) {
   gtk_box_pack_start(GTK_BOX(body), ed, TRUE, TRUE, 0);
   gtk_container_add(GTK_CONTAINER(win), body);
 
+  static const GtkTargetEntry URI_T[] = {{"text/uri-list", 0, 0}};
+  gtk_drag_dest_set(list, GTK_DEST_DEFAULT_ALL, URI_T, 1, GDK_ACTION_COPY);
+  g_signal_connect(list, "drag-data-received", G_CALLBACK(on_drop), NULL);
   gtk_widget_show_all(win);
   new_doc(NULL);
   for (int i = 1; i < argc; i++) {

@@ -1,2 +1,7 @@
 # Tout ce qui est genere par build/ : rootfs, images disque, binaires, logs.
 /out/
+# Binaires et fichiers generes quand on compile une appli seule (make -C src/...)
+/src/lumina-*/lumina-*
+!/src/lumina-*/*.c
+!/src/lumina-*/*.h
+/src/lumina-*/gen/

@@ -154,3 +154,36 @@ void net_wifi_connect(const char *dev, const char *ssid, const char *pass,
                        "iwctl", "--dont-ask", "station", dev, "connect", ssid, NULL);
   if (sp) g_subprocess_wait_async(sp, NULL, cb, data);
 }
+
+/* Temps restant (decharge) ou avant charge complete, d'apres le noyau :
+   « environ 3 h 10 restantes ». NULL sans batterie ou sans estimation. */
+static guint64 rd_u64(const char *dir, const char *f) {
+  char *p = g_build_filename(dir, f, NULL), *c = read_file(p);
+  guint64 v = c ? g_ascii_strtoull(c, NULL, 10) : 0;
+  g_free(p); g_free(c);
+  return v;
+}
+char *battery_eta(void) {
+  GDir *d = g_dir_open("/sys/class/power_supply", 0, NULL);
+  const char *n;
+  char *res = NULL;
+  while (d && (n = g_dir_read_name(d)) && !res) {
+    char *dir = g_build_filename("/sys/class/power_supply", n, NULL);
+    char *tp = g_build_filename(dir, "type", NULL), *t = read_file(tp), *sp = g_build_filename(dir, "status", NULL), *st = read_file(sp);
+    if (!g_strcmp0(t, "Battery") && st) {
+      gboolean chg = !strcmp(st, "Charging");
+      guint64 now = rd_u64(dir, "energy_now"), full = rd_u64(dir, "energy_full"), rate = rd_u64(dir, "power_now");
+      if (!now) { now = rd_u64(dir, "charge_now"); full = rd_u64(dir, "charge_full"); rate = rd_u64(dir, "current_now"); }
+      if (rate > 0 && (chg ? full > now : now > 0) && strcmp(st, "Full")) {
+        double h = (double)(chg ? full - now : now) / rate;
+        if (h > 0 && h < 48) {
+          int mins = (int)(h * 60 + 0.5);
+          res = g_strdup_printf("environ %d h %02d %s", mins / 60, mins % 60, chg ? "avant la charge complète" : "restantes");
+        }
+      }
+    }
+    g_free(dir); g_free(tp); g_free(t); g_free(sp); g_free(st);
+  }
+  if (d) g_dir_close(d);
+  return res;
+}

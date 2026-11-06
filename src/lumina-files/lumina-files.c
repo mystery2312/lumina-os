@@ -101,6 +101,13 @@ static const char *CSS =
   ".pickname { background: @surface; color: @on; border: 1px solid @outline_var; border-radius: 8px; padding: 8px 12px; }\n"
   ".snack { background: @on; color: @surface; border-radius: 8px; padding: 6px 8px 6px 16px; margin: 16px;\n"
   "         box-shadow: 0 3px 10px alpha(black, 0.25); }\n"
+  "window.qlwin.csd, window.qlwin.csd decoration { border-radius: 24px; }\n"
+  "window.qlwin { background: @surface; }\n"
+  "window.qlwin .titlebar { background: transparent; min-height: 0; padding: 0; margin: 0; border: none; box-shadow: none; }\n"
+  ".ql { background: transparent; padding: 18px 20px; }\n"
+  ".ql textview, .ql scrolledwindow { border-radius: 12px; }\n"
+  ".ql .qltitle { font-size: 16px; color: @on; }\n"
+  ".ql textview, .ql textview text { background: @c_low; color: @on; }\n"
   ".snack button { background: transparent; color: @pri_c; font-weight: 500; border-radius: 16px; padding: 6px 12px; }\n";
 
 /* ------------------------------------------------------------------ */
@@ -137,6 +144,7 @@ static char *pick_save, *pick_title, *pick_filter;
 static GtkWidget *pick_btn, *pick_name;
 static void pick_finish(void);
 static void setup_drag(GtkWidget *child);
+static void on_nav_drop(GtkWidget *w, GdkDragContext *ctx, gint x, gint y, GtkSelectionData *sd, guint info, guint t, gpointer d);
 static void setup_drop(GtkWidget *w);
 static GList *hist_back, *hist_fwd;
 static GPtrArray *entries;
@@ -348,11 +356,15 @@ static void rebuild_view(void) {
   gtk_flow_box_set_min_children_per_line(GTK_FLOW_BOX(flow), 1);
   for (guint i = 0; i < entries->len; i++) {
     Entry *e = entries->pdata[i];
-    GtkWidget *c = make_child(e);
-    gtk_flow_box_insert(GTK_FLOW_BOX(flow), c, -1);
-    GtkWidget *child = gtk_widget_get_parent(c);
+    /* GtkFlowBoxChild n'a pas de fenetre GDK : une source de glisser doit
+       en avoir une, d'ou la boite d'evenements (invisible) autour. */
+    GtkWidget *c = make_child(e), *eb = gtk_event_box_new();
+    gtk_event_box_set_visible_window(GTK_EVENT_BOX(eb), FALSE);
+    gtk_container_add(GTK_CONTAINER(eb), c);
+    gtk_flow_box_insert(GTK_FLOW_BOX(flow), eb, -1);
+    GtkWidget *child = gtk_widget_get_parent(eb);
     g_object_set_data(G_OBJECT(child), "entry", e);
-    setup_drag(child);
+    setup_drag(eb);
   }
   gtk_widget_show_all(flow);
   gtk_flow_box_invalidate_filter(GTK_FLOW_BOX(flow));
@@ -656,7 +668,13 @@ static GtkWidget *nav_row(const char *glyph, const char *text, GFile *f, GVolume
     gtk_container_add(GTK_CONTAINER(h), e);
   }
   gtk_container_add(GTK_CONTAINER(row), h);
-  if (f) g_object_set_data_full(G_OBJECT(row), "file", g_object_ref(f), g_object_unref);
+  if (f) {
+    g_object_set_data_full(G_OBJECT(row), "file", g_object_ref(f), g_object_unref);
+    /* Deposer des fichiers sur un dossier du panneau : ils y vont */
+    static const GtkTargetEntry URI_T[] = {{"text/uri-list", 0, 0}};
+    gtk_drag_dest_set(row, GTK_DEST_DEFAULT_ALL, URI_T, 1, GDK_ACTION_COPY | GDK_ACTION_MOVE);
+    g_signal_connect(row, "drag-data-received", G_CALLBACK(on_nav_drop), NULL);
+  }
   if (v) g_object_set_data_full(G_OBJECT(row), "volume", g_object_ref(v), g_object_unref);
   return row;
 }
@@ -1167,12 +1185,12 @@ static gboolean is_protected(GFile *f);
 static GList *selected_entries(void);
 
 static void on_drag_begin(GtkWidget *w, GdkDragContext *ctx, gpointer d) {
-  GtkFlowBoxChild *c = GTK_FLOW_BOX_CHILD(w);
+  GtkFlowBoxChild *c = GTK_FLOW_BOX_CHILD(gtk_widget_get_ancestor(w, GTK_TYPE_FLOW_BOX_CHILD));
   if (!gtk_flow_box_child_is_selected(c)) {
     gtk_flow_box_unselect_all(GTK_FLOW_BOX(flow));
     gtk_flow_box_select_child(GTK_FLOW_BOX(flow), c);
   }
-  Entry *e = g_object_get_data(G_OBJECT(w), "entry");
+  Entry *e = g_object_get_data(G_OBJECT(c), "entry");
   if (e) {
     GtkIconTheme *th = gtk_icon_theme_get_default();
     gtk_drag_set_icon_name(ctx, e->type == G_FILE_TYPE_DIRECTORY ? "folder" : "text-x-generic", 0, 0);
@@ -1216,6 +1234,26 @@ static void on_drop(GtkWidget *w, GdkDragContext *ctx, gint x, gint y, GtkSelect
   if (o->files) run_op(o); else op_free(o);
   gtk_drag_finish(ctx, TRUE, FALSE, t);
 }
+/* Depot sur un dossier du panneau (Documents, Telechargements, cle USB,
+   Corbeille) */
+static void on_nav_drop(GtkWidget *w, GdkDragContext *ctx, gint x, gint y, GtkSelectionData *sd, guint info, guint t, gpointer d) {
+  GFile *dest = g_object_get_data(G_OBJECT(w), "file");
+  char **uris = gtk_selection_data_get_uris(sd);
+  if (!dest || !uris) { g_strfreev(uris); gtk_drag_finish(ctx, FALSE, FALSE, t); return; }
+  gboolean internal = gtk_drag_get_source_widget(ctx) != NULL, to_trash = g_file_equal(dest, trash);
+  Op *o = g_new0(Op, 1);
+  o->kind = to_trash ? OP_TRASH : internal ? OP_MOVE : OP_COPY;
+  if (!to_trash) o->dest = g_object_ref(dest);
+  for (char **u = uris; *u; u++) {
+    GFile *f = g_file_new_for_uri(*u);
+    if (g_file_equal(f, dest) || (internal && is_protected(f))) { g_object_unref(f); continue; }
+    o->files = g_list_append(o->files, f);
+  }
+  g_strfreev(uris);
+  if (o->files) run_op(o); else op_free(o);
+  gtk_drag_finish(ctx, TRUE, FALSE, t);
+}
+
 static void setup_drop(GtkWidget *w) {
   gtk_drag_dest_set(w, GTK_DEST_DEFAULT_ALL, URI_TARGET, 1, GDK_ACTION_COPY | GDK_ACTION_MOVE);
   g_signal_connect(w, "drag-data-received", G_CALLBACK(on_drop), NULL);
@@ -1438,6 +1476,79 @@ static void on_more(GtkButton *b, gpointer d) {
 /* ------------------------------------------------------------------ */
 /* Clavier                                                             */
 /* ------------------------------------------------------------------ */
+
+/* ------------------------------------------------------------------ */
+/* Apercu rapide (Espace) : image, debut d'un texte, ou fiche du fichier */
+/* ------------------------------------------------------------------ */
+static GtkWidget *ql_win;
+static gboolean ql_key(GtkWidget *w, GdkEventKey *e, gpointer d) {
+  if (e->keyval == GDK_KEY_Escape || e->keyval == GDK_KEY_space) { gtk_widget_destroy(ql_win); ql_win = NULL; return TRUE; }
+  return FALSE;
+}
+static void ql_open(GtkButton *b, gpointer e) { gtk_widget_destroy(ql_win); ql_win = NULL; open_entry(e); }
+static void quick_look(void) {
+  if (ql_win) { gtk_widget_destroy(ql_win); ql_win = NULL; return; }
+  GList *sel = selected_entries();
+  Entry *e = sel && !sel->next ? sel->data : NULL;
+  g_list_free(sel);
+  if (!e || e->type == G_FILE_TYPE_DIRECTORY) return;
+  char *path = g_file_get_path(e->file);
+  ql_win = gtk_window_new(GTK_WINDOW_TOPLEVEL);
+  add_class(ql_win, "qlwin");
+  gtk_window_set_transient_for(GTK_WINDOW(ql_win), GTK_WINDOW(win));
+  gtk_window_set_modal(GTK_WINDOW(ql_win), TRUE);
+  gtk_window_set_title(GTK_WINDOW(ql_win), e->name);
+  gtk_window_set_titlebar(GTK_WINDOW(ql_win), gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0));
+  g_signal_connect(ql_win, "key-press-event", G_CALLBACK(ql_key), NULL);
+  GtkWidget *v = gtk_box_new(GTK_ORIENTATION_VERTICAL, 12);
+  add_class(v, "ql");
+  GtkWidget *h = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 10);
+  GtkWidget *t = label(e->name, "qltitle", 0);
+  gtk_label_set_ellipsize(GTK_LABEL(t), PANGO_ELLIPSIZE_MIDDLE);
+  gtk_widget_set_hexpand(t, TRUE);
+  gtk_container_add(GTK_CONTAINER(h), t);
+  GtkWidget *ob = gtk_button_new_with_label("Ouvrir");
+  add_class(ob, "fbtn");
+  g_signal_connect(ob, "clicked", G_CALLBACK(ql_open), e);
+  gtk_container_add(GTK_CONTAINER(h), ob);
+  gtk_container_add(GTK_CONTAINER(v), h);
+  GtkWidget *body = NULL;
+  if (path && e->ctype && g_str_has_prefix(e->ctype, "image/")) {
+    int iw = 0, ih = 0; gdk_pixbuf_get_file_info(path, &iw, &ih);
+    GdkPixbuf *pb = gdk_pixbuf_new_from_file_at_scale(path, iw > 0 && iw < 760 ? iw : 760, ih > 0 && ih < 500 ? ih : 500, TRUE, NULL);
+    if (pb) { GdkPixbuf *o = gdk_pixbuf_apply_embedded_orientation(pb); body = gtk_image_new_from_pixbuf(o); g_object_unref(o); g_object_unref(pb); }
+  } else if (path && e->ctype && (g_content_type_is_a(e->ctype, "text/plain") || g_str_has_prefix(e->ctype, "text/"))) {
+    char *c = NULL; gsize n = 0;
+    GFile *f = e->file; GFileInputStream *in = g_file_read(f, NULL, NULL);
+    if (in) { c = g_malloc0(8193); g_input_stream_read_all(G_INPUT_STREAM(in), c, 8192, &n, NULL, NULL); g_object_unref(in); }
+    if (c && g_utf8_validate(c, n, NULL)) {
+      GtkWidget *tv = gtk_text_view_new();
+      gtk_text_view_set_editable(GTK_TEXT_VIEW(tv), FALSE);
+      gtk_text_view_set_monospace(GTK_TEXT_VIEW(tv), TRUE);
+      gtk_text_view_set_wrap_mode(GTK_TEXT_VIEW(tv), GTK_WRAP_WORD_CHAR);
+      gtk_text_buffer_set_text(gtk_text_view_get_buffer(GTK_TEXT_VIEW(tv)), c, n);
+      body = gtk_scrolled_window_new(NULL, NULL);
+      gtk_widget_set_size_request(body, 640, 400);
+      gtk_container_add(GTK_CONTAINER(body), tv);
+    }
+    g_free(c);
+  }
+  if (!body) {
+    body = gtk_box_new(GTK_ORIENTATION_VERTICAL, 10);
+    gtk_container_add(GTK_CONTAINER(body), entry_icon(e, 96));
+    char *ty = e->ctype ? g_content_type_get_description(e->ctype) : g_strdup("Fichier");
+    char *sz = g_format_size(e->size), *info = g_strdup_printf("%s · %s", ty, sz);
+    gtk_container_add(GTK_CONTAINER(body), label(info, "meta", 0.5));
+    gtk_widget_set_size_request(body, 360, 200);
+    g_free(ty); g_free(sz); g_free(info);
+  }
+  gtk_container_add(GTK_CONTAINER(v), body);
+  gtk_container_add(GTK_CONTAINER(v), label("Espace ou Échap pour fermer", "meta", 0.5));
+  gtk_container_add(GTK_CONTAINER(ql_win), v);
+  gtk_widget_show_all(ql_win);
+  g_free(path);
+}
+
 static gboolean on_key(GtkWidget *w, GdkEventKey *ev, gpointer d) {
   guint k = ev->keyval;
   gboolean ctrl = ev->state & GDK_CONTROL_MASK, alt = ev->state & GDK_MOD1_MASK, shift = ev->state & GDK_SHIFT_MASK;
@@ -1447,6 +1558,7 @@ static gboolean on_key(GtkWidget *w, GdkEventKey *ev, gpointer d) {
     gtk_flow_box_unselect_all(GTK_FLOW_BOX(flow)); gtk_widget_grab_focus(flow); return TRUE;
   }
   if (ctrl && k == GDK_KEY_f) { gtk_widget_grab_focus(search_entry); return TRUE; }
+  if (k == GDK_KEY_space && !typing && !pick_mode) { quick_look(); return TRUE; }
   if (ctrl && k == GDK_KEY_h) { toggle_hidden(); return TRUE; }
   if (ctrl && shift && (k == GDK_KEY_N || k == GDK_KEY_n)) { new_folder(); return TRUE; }
   if (alt && k == GDK_KEY_Left) { go_back(); return TRUE; }

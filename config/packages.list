@@ -154,3 +154,7 @@ libinput-tools
 greetd
 # Economie d energie (portables)
 power-profiles-daemon
+# Securite : pare-feu (nftables), confinement des programmes (AppArmor)
+nftables
+apparmor
+libglib2.0-data

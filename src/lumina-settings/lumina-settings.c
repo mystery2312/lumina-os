@@ -35,7 +35,9 @@ static const char *CSS =
   ".apptitle { font-size: 16px; color: @on; padding-left: 8px; }\n"
   ".nav { background: @surface; padding: 4px 12px 12px 12px; border-radius: 0 0 0 16px; }\n"
   "window.maximized .nav, window.tiled .nav { border-radius: 0; }\n"
-  ".nav list, .nav row { background: transparent; }\n"
+  ".nav list, .nav row, .nav scrolledwindow, .nav viewport { background: transparent; }\n"
+  ".navsearch { background: @c_high; color: @on; border: none; box-shadow: none; border-radius: 20px; min-height: 38px;\n"
+  "             padding: 0 12px; margin: 4px 0 8px 0; caret-color: @pri; }\n"
   ".nav row { border-radius: 24px; padding: 0; margin: 1px 0; }\n"
   ".nav row:hover { background: alpha(@on, 0.06); }\n"
   ".nav row:selected { background: @sec_c; color: @on_sec_c; }\n"
@@ -63,6 +65,8 @@ static const char *CSS =
   ".swatch { background: transparent; padding: 0; border-radius: 22px; min-width: 44px; min-height: 44px; }\n"
   ".swatch:hover { background: alpha(@on, 0.06); }\n"
   ".swatches { padding: 4px 14px 14px 14px; }\n"
+  ".wallstyle { background: transparent; border-radius: 14px; padding: 4px; }\n"
+  ".wallstyle:hover { background: alpha(@on, 0.06); }\n"
   ".wallprev { border-radius: 12px; }\n"
   ".field { background: @c_low; color: @on; border: 1px solid @outline_var; border-radius: 8px; padding: 9px 12px;\n"
   "         box-shadow: none; caret-color: @pri; }\n"
@@ -516,6 +520,7 @@ static const struct { const char *hex, *name; } ACCENTS[] = {
   {"#7b4fa0", "Violet"}, {"#a83f6e", "Rose"}, {"#b3261e", "Rouge"}, {"#b25b14", "Orange"},
   {"#8a6d00", "Ambre"}, {"#5d6b1e", "Olive"}, {"#6b6f72", "Gris"},
 };
+static GtkWidget *wall_styles;
 static GtkWidget *swatch_box, *wall_sub, *wall_reset, *wall_prev;
 static void fill_swatches(void);
 
@@ -584,7 +589,8 @@ static void fill_swatches(void) {
 
 static void update_wall_row(void) {
   char *wp = lumina_ui_wallpaper_path();
-  gtk_label_set_text(GTK_LABEL(wall_sub), wp ? "Votre photo" : "Dégradé LuminaOS, aux couleurs du thème");
+  gtk_label_set_text(GTK_LABEL(wall_sub), wp ? "Votre photo" : "Fond LuminaOS, aux couleurs du thème. Déposez une image ici pour l'utiliser.");
+  if (wall_styles) gtk_widget_queue_draw(wall_styles);
   gtk_widget_set_visible(wall_reset, wp != NULL);
   GdkPixbuf *pb = wp ? gdk_pixbuf_new_from_file_at_scale(wp, 96, 60, FALSE, NULL) : NULL;
   if (pb) { gtk_image_set_from_pixbuf(GTK_IMAGE(wall_prev), pb); g_object_unref(pb); gtk_widget_show(wall_prev); }
@@ -638,6 +644,55 @@ static void on_wall_reset(GtkButton *b, gpointer d) {
   update_wall_row();
 }
 
+/* Fonds LuminaOS : vignettes dessinees, un clic les applique (et retire
+   la photo eventuelle) */
+static gboolean draw_wall_thumb(GtkWidget *w, cairo_t *cr, gpointer d) {
+  double W = gtk_widget_get_allocated_width(w), H = gtk_widget_get_allocated_height(w), r = 10;
+  cairo_new_sub_path(cr);
+  cairo_arc(cr, W - r, r, r, -G_PI / 2, 0); cairo_arc(cr, W - r, H - r, r, 0, G_PI / 2);
+  cairo_arc(cr, r, H - r, r, G_PI / 2, G_PI); cairo_arc(cr, r, r, r, G_PI, 3 * G_PI / 2);
+  cairo_close_path(cr); cairo_clip(cr);
+  lumina_ui_draw_wallpaper(cr, W, H, GPOINTER_TO_INT(d));
+  char *wp = lumina_ui_wallpaper_path();
+  if (!wp && lumina_ui_wall_style() == GPOINTER_TO_INT(d)) {
+    double rr, gg, bb; hex_rgb(P->pri, &rr, &gg, &bb);
+    cairo_reset_clip(cr);
+    cairo_set_source_rgb(cr, rr, gg, bb); cairo_set_line_width(cr, 6);
+    cairo_new_sub_path(cr);
+    cairo_arc(cr, W - r, r, r, -G_PI / 2, 0); cairo_arc(cr, W - r, H - r, r, 0, G_PI / 2);
+    cairo_arc(cr, r, H - r, r, G_PI / 2, G_PI); cairo_arc(cr, r, r, r, G_PI, 3 * G_PI / 2);
+    cairo_close_path(cr); cairo_stroke(cr);
+  }
+  g_free(wp);
+  return FALSE;
+}
+static void on_wall_style(GtkButton *b, gpointer d) {
+  char *p = g_build_filename(g_get_user_config_dir(), "lumina", "wallpaper", NULL);
+  g_unlink(p); g_free(p);
+  char *acc = lumina_ui_accent();
+  if (!g_ascii_strcasecmp(acc, "wallpaper")) lumina_ui_set_accent(NULL);
+  g_free(acc);
+  lumina_ui_set_wall_style(GPOINTER_TO_INT(d));
+  update_wall_row();
+  gtk_widget_queue_draw(wall_styles);
+}
+/* Deposer une image (depuis Fichiers, Chromium...) : nouveau fond d'ecran */
+static void on_wall_drop(GtkWidget *w, GdkDragContext *c, gint x, gint y, GtkSelectionData *sd, guint info, guint t, gpointer d) {
+  char **uris = gtk_selection_data_get_uris(sd);
+  gboolean ok = FALSE;
+  if (uris && uris[0]) {
+    char *path = g_filename_from_uri(uris[0], NULL, NULL);
+    if (path && gdk_pixbuf_get_file_info(path, NULL, NULL)) {
+      const char *argv[] = {"lumina-set-wallpaper", path, NULL};
+      int st; g_free(run_argv(argv, &st)); ok = st == 0;
+    }
+    g_free(path);
+  }
+  g_strfreev(uris);
+  gtk_drag_finish(c, ok, FALSE, t);
+  if (ok) update_wall_row();
+}
+
 static void build_personalize(GtkWidget *p) {
   GtkWidget *g = group(p, "Fond d'écran et couleurs");
   GtkWidget *end = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
@@ -649,7 +704,28 @@ static void build_personalize(GtkWidget *p) {
   gtk_widget_set_no_show_all(wall_reset, TRUE);
   gtk_container_add(GTK_CONTAINER(end), wall_reset);
   gtk_container_add(GTK_CONTAINER(end), button("Choisir une photo…", "fbtn", G_CALLBACK(on_wall_choose), NULL));
-  row(g, "Fond d'écran", "", end, &wall_sub);
+  GtkWidget *wr = row(g, "Fond d'écran", "", end, &wall_sub);
+  /* Glisser une image sur cette ligne la met en fond d'ecran */
+  static const GtkTargetEntry URI[] = {{"text/uri-list", 0, 0}};
+  gtk_drag_dest_set(wr, GTK_DEST_DEFAULT_ALL, URI, 1, GDK_ACTION_COPY);
+  g_signal_connect(wr, "drag-data-received", G_CALLBACK(on_wall_drop), NULL);
+  wall_styles = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 10);
+  add_class(wall_styles, "swatches");
+  for (int i = 0; i < LUMINA_WALL_COUNT; i++) {
+    GtkWidget *b = gtk_button_new();
+    add_class(b, "wallstyle");
+    gtk_widget_set_tooltip_text(b, LUMINA_WALL_NAMES[i]);
+    GtkWidget *v = gtk_box_new(GTK_ORIENTATION_VERTICAL, 4);
+    GtkWidget *a = gtk_drawing_area_new();
+    gtk_widget_set_size_request(a, 96, 60);
+    g_signal_connect(a, "draw", G_CALLBACK(draw_wall_thumb), GINT_TO_POINTER(i));
+    gtk_container_add(GTK_CONTAINER(v), a);
+    gtk_container_add(GTK_CONTAINER(v), label(LUMINA_WALL_NAMES[i], "s", 0.5));
+    gtk_container_add(GTK_CONTAINER(b), v);
+    g_signal_connect(b, "clicked", G_CALLBACK(on_wall_style), GINT_TO_POINTER(i));
+    gtk_container_add(GTK_CONTAINER(wall_styles), b);
+  }
+  gtk_container_add(GTK_CONTAINER(g), wall_styles);
   row(g, "Couleur du thème", "Barre, étagère, applis LuminaOS et boutons", NULL, NULL);
   swatch_box = gtk_flow_box_new();
   add_class(swatch_box, "swatches");
@@ -726,6 +802,56 @@ static void on_mute(GObject *o, GParamSpec *ps, gpointer d) {
   spawn_async(argv);
 }
 
+/* Sorties et entrees audio (wpctl status) : choix de l'appareil par defaut */
+typedef struct { int id; char *name; gboolean def; } AudioDev;
+static void audio_free(gpointer p) { AudioDev *a = p; g_free(a->name); g_free(a); }
+static void audio_list(GPtrArray *sinks, GPtrArray *sources) {
+  const char *argv[] = {"wpctl", "status", NULL};
+  char *o = run_argv(argv, NULL);
+  char **l = o ? g_strsplit(o, "\n", -1) : NULL;
+  GPtrArray *cur = NULL;
+  GRegex *re = g_regex_new("(\\*)?\\s+(\\d+)\\.\\s+(.+?)\\s+\\[vol", 0, 0, NULL);
+  for (char **i = l; i && *i; i++) {
+    if (g_str_has_prefix(*i, "Video") || g_str_has_prefix(*i, "Settings")) break;
+    if (strstr(*i, "Sinks:")) { cur = sinks; continue; }
+    if (strstr(*i, "Sources:")) { cur = sources; continue; }
+    if (strstr(*i, "Filters:") || strstr(*i, "Streams:") || strstr(*i, "Devices:")) { cur = NULL; continue; }
+    GMatchInfo *m = NULL;
+    if (cur && g_regex_match(re, *i, 0, &m)) {
+      AudioDev *a = g_new0(AudioDev, 1);
+      char *star = g_match_info_fetch(m, 1), *id = g_match_info_fetch(m, 2);
+      a->def = star && *star; a->id = atoi(id); a->name = g_match_info_fetch(m, 3);
+      g_ptr_array_add(cur, a);
+      g_free(star); g_free(id);
+    }
+    if (m) g_match_info_free(m);
+  }
+  g_regex_unref(re); g_strfreev(l); g_free(o);
+}
+static void on_audio_dev(GtkComboBox *c, gpointer d) {
+  GPtrArray *a = d;
+  int i = gtk_combo_box_get_active(c);
+  if (i < 0 || (guint)i >= a->len) return;
+  char *id = g_strdup_printf("%d", ((AudioDev *)a->pdata[i])->id);
+  const char *argv[] = {"wpctl", "set-default", id, NULL};
+  spawn_async(argv);
+  g_free(id);
+}
+static void audio_row(GtkWidget *g, const char *title, const char *sub, GPtrArray *devs) {
+  if (devs->len < 1) return;
+  GtkWidget *c = gtk_combo_box_text_new();
+  int act = 0;
+  for (guint i = 0; i < devs->len; i++) {
+    AudioDev *a = devs->pdata[i];
+    gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(c), a->name);
+    if (a->def) act = i;
+  }
+  gtk_combo_box_set_active(GTK_COMBO_BOX(c), act);
+  g_signal_connect_data(c, "changed", G_CALLBACK(on_audio_dev), devs, (GClosureNotify)(void (*)(void))g_ptr_array_unref, 0);
+  gtk_widget_set_size_request(c, 240, -1);
+  row(g, title, sub, c, NULL);
+}
+
 static void build_sound(void) {
   GtkWidget *p = page_box("son", "Son");
   const char *argv[] = {"wpctl", "get-volume", "@DEFAULT_AUDIO_SINK@", NULL};
@@ -747,6 +873,14 @@ static void build_sound(void) {
   g_signal_connect(m, "notify::active", G_CALLBACK(on_mute), NULL);
   row(g, "Couper le son", NULL, m, NULL);
   g_free(o);
+  GPtrArray *sinks = g_ptr_array_new_with_free_func(audio_free), *srcs = g_ptr_array_new_with_free_func(audio_free);
+  audio_list(sinks, srcs);
+  GtkWidget *g2 = group(p, "Appareils");
+  audio_row(g2, "Sortie", "Haut-parleurs, casque, écran HDMI…", sinks);
+  audio_row(g2, "Entrée", "Micro intégré ou casque-micro", srcs);
+  if (!sinks->len && !srcs->len) row(g2, "Aucun appareil détecté", NULL, NULL, NULL);
+  if (!sinks->len) g_ptr_array_unref(sinks);
+  if (!srcs->len) g_ptr_array_unref(srcs);
 }
 
 /* ------------------------------------------------------------------ */
@@ -1344,6 +1478,65 @@ static gboolean on_focus_in(GtkWidget *w, GdkEvent *e, gpointer d) {
 /* Theme, accent ou fond d'ecran changes (ici ou ailleurs) */
 static void on_theme_ext(void) { if (wall_sub) update_wall_row(); }
 
+
+/* Mots-cles de la recherche des Reglages (en plus du titre de la page) */
+static const struct { const char *id, *kw; } KEYWORDS[] = {
+  {"reseau", "wifi wi-fi internet ethernet cable connexion reseau mot de passe"},
+  {"bluetooth", "casque ecouteurs souris clavier appairer enceinte"},
+  {"affichage", "theme sombre clair fond d ecran couleur luminosite eclairage nocturne veille photo"},
+  {"ecrans", "resolution definition taille zoom echelle rotation second ecran projecteur recopie"},
+  {"son", "volume haut-parleur micro casque sortie entree muet"},
+  {"clavier", "langue azerty qwerty disposition traduction"},
+  {"souris", "pave tactile touchpad vitesse defilement clic gaucher"},
+  {"compte", "mot de passe pin code verrouillage nom personnes invite utilisateur"},
+  {"linux", "terminal debian apt conteneur sauvegarde"},
+  {"android", "applis play waydroid"},
+  {"imprimantes", "impression imprimer scanner cups"},
+  {"heure", "date fuseau horaire horloge ntp"},
+  {"energie", "batterie capot veille alimentation"},
+  {"accessibilite", "lecteur d ecran loupe contraste texte grand curseur malvoyant"},
+  {"raccourcis", "clavier touches combinaisons"},
+  {"maj", "mise a jour version beta canal"},
+  {"stockage", "disque espace memoire fichiers"},
+  {"apropos", "version processeur reinitialiser powerwash informations"},
+};
+static GtkWidget *nav_search;
+static char *fold(const char *s) {
+  char *c = g_utf8_casefold(s, -1), *a = g_str_to_ascii(c, NULL);
+  g_free(c);
+  return a;
+}
+static gboolean nav_filter(GtkListBoxRow *r, gpointer d) {
+  const char *q = nav_search ? gtk_entry_get_text(GTK_ENTRY(nav_search)) : "";
+  if (!*q) return TRUE;
+  const char *id = g_object_get_data(G_OBJECT(r), "id");
+  const char *title = g_object_get_data(G_OBJECT(r), "title");
+  char *hay = g_strdup(title ? title : "");
+  for (guint i = 0; i < G_N_ELEMENTS(KEYWORDS); i++)
+    if (!g_strcmp0(KEYWORDS[i].id, id)) { char *t = g_strconcat(hay, " ", KEYWORDS[i].kw, NULL); g_free(hay); hay = t; }
+  char *fh = fold(hay), *fq = fold(q);
+  /* Tous les mots de la recherche doivent apparaitre */
+  gboolean ok = TRUE;
+  char **words = g_strsplit(fq, " ", -1);
+  for (char **w = words; *w && ok; w++) if (**w && !strstr(fh, *w)) ok = FALSE;
+  g_strfreev(words); g_free(fh); g_free(fq); g_free(hay);
+  return ok;
+}
+static void on_nav_search(GtkEditable *e, gpointer d) { gtk_list_box_invalidate_filter(GTK_LIST_BOX(nav)); }
+static void on_nav_search_go(GtkEntry *e, gpointer d) {
+  GList *k = gtk_container_get_children(GTK_CONTAINER(nav));
+  for (GList *l = k; l; l = l->next)
+    if (gtk_widget_get_child_visible(l->data) && nav_filter(l->data, NULL)) { gtk_list_box_select_row(GTK_LIST_BOX(nav), l->data); break; }
+  g_list_free(k);
+}
+
+static gboolean on_win_type(GtkWidget *w, GdkEventKey *ev, gpointer d) {
+  GtkWidget *f = gtk_window_get_focus(GTK_WINDOW(w));
+  if (f && GTK_IS_EDITABLE(f)) return FALSE;
+  if (ev->state & (GDK_CONTROL_MASK | GDK_MOD1_MASK)) return FALSE;
+  return gtk_search_entry_handle_event(GTK_SEARCH_ENTRY(nav_search), (GdkEvent *)ev);
+}
+
 int main(int argc, char **argv) {
   g_set_prgname("lumina-settings");
   gtk_init(&argc, &argv);
@@ -1367,12 +1560,24 @@ int main(int argc, char **argv) {
   GtkWidget *navsc = gtk_scrolled_window_new(NULL, NULL);
   gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(navsc), GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
   gtk_widget_set_size_request(navsc, 240, -1);
-  add_class(navsc, "nav");
+  /* (classe "nav" portee par la colonne, recherche comprise) */
   nav = gtk_list_box_new();
   gtk_list_box_set_activate_on_single_click(GTK_LIST_BOX(nav), TRUE);
+  gtk_list_box_set_filter_func(GTK_LIST_BOX(nav), nav_filter, NULL, NULL);
   g_signal_connect(nav, "row-selected", G_CALLBACK(on_nav), NULL);
   gtk_container_add(GTK_CONTAINER(navsc), nav);
-  gtk_box_pack_start(GTK_BOX(body), navsc, FALSE, FALSE, 0);
+  /* Recherche au-dessus de la liste des pages */
+  GtkWidget *navcol = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
+  add_class(navcol, "nav");
+  nav_search = gtk_search_entry_new();
+  add_class(nav_search, "navsearch");
+  gtk_entry_set_placeholder_text(GTK_ENTRY(nav_search), "Rechercher un réglage");
+  g_signal_connect(nav_search, "changed", G_CALLBACK(on_nav_search), NULL);
+  g_signal_connect(nav_search, "activate", G_CALLBACK(on_nav_search_go), NULL);
+  gtk_container_add(GTK_CONTAINER(navcol), nav_search);
+  gtk_widget_set_vexpand(navsc, TRUE);
+  gtk_container_add(GTK_CONTAINER(navcol), navsc);
+  gtk_box_pack_start(GTK_BOX(body), navcol, FALSE, FALSE, 0);
   stack = gtk_stack_new();
   gtk_stack_set_transition_type(GTK_STACK(stack), GTK_STACK_TRANSITION_TYPE_CROSSFADE);
   add_class(stack, "content");
@@ -1389,11 +1594,16 @@ int main(int argc, char **argv) {
     gtk_container_add(GTK_CONTAINER(h), label(SECTIONS[i].title, NULL, 0));
     gtk_container_add(GTK_CONTAINER(r), h);
     g_object_set_data(G_OBJECT(r), "id", (gpointer)SECTIONS[i].id);
+    g_object_set_data(G_OBJECT(r), "title", (gpointer)SECTIONS[i].title);
     gtk_container_add(GTK_CONTAINER(nav), r);
     if (!strcmp(want, SECTIONS[i].id)) sel = GTK_LIST_BOX_ROW(r);
   }
   gtk_widget_show_all(win);
   if (sel) gtk_list_box_select_row(GTK_LIST_BOX(nav), sel);
+  /* Pas de focus initial dans la recherche (son texte indicatif reste
+     visible) ; une frappe hors d'un champ de saisie y part directement. */
+  gtk_window_set_focus(GTK_WINDOW(win), NULL);
+  g_signal_connect(win, "key-press-event", G_CALLBACK(on_win_type), NULL);
   gtk_main();
   return 0;
 }
