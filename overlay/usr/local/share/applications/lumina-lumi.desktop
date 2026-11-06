@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Lumi
+Comment=Votre assistant : questions, résumés, reformulations
+Keywords=ia;ai;assistant;chat;question;résumer;rédiger;
+Exec=lumina-lumi
+StartupWMClass=lumina-lumi
+X-Lumina-Glyph=sparkle
+X-Lumina-Color=#7b5cd6
+X-Lumina-Kind=Système

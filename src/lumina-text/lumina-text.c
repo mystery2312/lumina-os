@@ -8,6 +8,7 @@
  * Usage : lumina-text [fichier...]
  */
 #include "lumina-ui.h"
+#include "lumina-ai.h"
 #include "lumina-sys.h"
 #include <gtksourceview/gtksource.h>
 #include <string.h>
@@ -42,7 +43,17 @@ static const char *CSS =
   ".tbtn { background: transparent; color: @pri; border-radius: 16px; padding: 6px 12px; font-weight: 500; }\n"
   ".tbtn:hover { background: alpha(@pri, 0.08); }\n"
   ".status { color: @on_var; font-size: 12px; padding: 4px 18px 8px 18px; }\n"
-  ".newbtn { background: @pri_c; color: @on_pri_c; border-radius: 16px; padding: 8px 14px; font-weight: 500; margin: 4px 0 8px 0; }\n";
+  ".newbtn { background: @pri_c; color: @on_pri_c; border-radius: 16px; padding: 8px 14px; font-weight: 500; margin: 4px 0 8px 0; }\n"
+  "window.aiwin.csd, window.aiwin.csd decoration { border-radius: 24px; }\n"
+  "window.aiwin { background: @surface; }\n"
+  "window.aiwin .titlebar { background: transparent; min-height: 0; padding: 0; margin: 0; border: none; box-shadow: none; }\n"
+  ".aibox { padding: 18px 20px; }\n"
+  ".aititle { font-size: 16px; color: @on; }\n"
+  ".aibox textview, .aibox textview text { background: @c_low; color: @on; font-size: 14px; }\n"
+  ".aibox scrolledwindow { border-radius: 14px; }\n"
+  ".aifoot { color: @on_var; font-size: 11.5px; }\n"
+  ".fbtn { background: @pri; color: @on_pri; border-radius: 20px; padding: 8px 18px; font-weight: 500; }\n"
+  ".fbtn:disabled { background: alpha(@on, 0.12); color: alpha(@on, 0.38); }\n";
 
 typedef struct {
   GtkSourceBuffer *buf;
@@ -406,6 +417,189 @@ static void on_menu(GtkWidget *b, gpointer x) {
   gtk_menu_popup_at_widget(GTK_MENU(m), b, GDK_GRAVITY_SOUTH_EAST, GDK_GRAVITY_NORTH_EAST, NULL);
 }
 
+/* ------------------------------------------------------------------ */
+/* Lumi : resumer, ameliorer, corriger, traduire la selection (ou tout  */
+/* le document). Le resultat arrive au fil de l'eau dans une fenetre :  */
+/* Remplacer, Inserer apres, Copier.                                     */
+/* ------------------------------------------------------------------ */
+typedef struct {
+  GtkWidget *w, *tv, *repl, *ins, *copy, *state;
+  GtkTextBuffer *out;
+  Doc *doc;
+  GtkTextMark *start, *end;   /* zone de depart dans le document */
+  GCancellable *cancel;
+  gboolean done;
+} AiJob;
+
+static const struct { const char *title, *prompt; } AI_ACTIONS[] = {
+  {"Résumer", "Résume le texte suivant en quelques phrases courtes, dans sa langue. Réponds seulement par le résumé."},
+  {"Améliorer le style", "Réécris le texte suivant pour le rendre plus clair et plus fluide, sans changer son sens ni sa langue. Réponds seulement par le texte réécrit."},
+  {"Corriger les fautes", "Corrige l'orthographe, la grammaire et la ponctuation du texte suivant, sans rien changer d'autre. Réponds seulement par le texte corrigé."},
+  {"Raccourcir", "Raccourcis le texte suivant de moitié environ en gardant l'essentiel, dans sa langue. Réponds seulement par le texte raccourci."},
+  {"Traduire en anglais", "Traduis le texte suivant en anglais. Réponds seulement par la traduction."},
+  {"Traduire en français", "Traduis le texte suivant en français. Réponds seulement par la traduction."},
+};
+
+static void ai_job_free(AiJob *j) {
+  if (j->cancel) { g_cancellable_cancel(j->cancel); g_object_unref(j->cancel); }
+  GtkTextBuffer *b = GTK_TEXT_BUFFER(j->doc->buf);
+  if (j->start) gtk_text_buffer_delete_mark(b, j->start);
+  if (j->end) gtk_text_buffer_delete_mark(b, j->end);
+  g_free(j);
+}
+static void on_ai_destroy(GtkWidget *w, gpointer d) { ai_job_free(d); }
+
+static char *ai_result(AiJob *j) {
+  GtkTextIter a, b;
+  gtk_text_buffer_get_bounds(j->out, &a, &b);
+  char *t = gtk_text_buffer_get_text(j->out, &a, &b, FALSE);
+  return g_strstrip(t);
+}
+static void on_ai_replace(GtkButton *bt, gpointer d) {
+  AiJob *j = d;
+  GtkTextBuffer *b = GTK_TEXT_BUFFER(j->doc->buf);
+  GtkTextIter a, e;
+  gtk_text_buffer_get_iter_at_mark(b, &a, j->start);
+  gtk_text_buffer_get_iter_at_mark(b, &e, j->end);
+  char *t = ai_result(j);
+  gtk_text_buffer_begin_user_action(b);
+  gtk_text_buffer_delete(b, &a, &e);
+  gtk_text_buffer_insert(b, &a, t, -1);
+  gtk_text_buffer_end_user_action(b);
+  g_free(t);
+  gtk_widget_destroy(j->w);
+}
+static void on_ai_insert(GtkButton *bt, gpointer d) {
+  AiJob *j = d;
+  GtkTextBuffer *b = GTK_TEXT_BUFFER(j->doc->buf);
+  GtkTextIter e;
+  gtk_text_buffer_get_iter_at_mark(b, &e, j->end);
+  char *t = ai_result(j), *ins = g_strdup_printf("\n\n%s\n", t);
+  gtk_text_buffer_begin_user_action(b);
+  gtk_text_buffer_insert(b, &e, ins, -1);
+  gtk_text_buffer_end_user_action(b);
+  g_free(t); g_free(ins);
+  gtk_widget_destroy(j->w);
+}
+static void on_ai_copy(GtkButton *bt, gpointer d) {
+  AiJob *j = d;
+  char *t = ai_result(j);
+  gtk_clipboard_set_text(gtk_clipboard_get(GDK_SELECTION_CLIPBOARD), t, -1);
+  g_free(t);
+  gtk_label_set_text(GTK_LABEL(j->state), "Copié dans le presse-papiers.");
+}
+static void on_ai_piece(const char *piece, gpointer d) {
+  AiJob *j = d;
+  GtkTextIter e;
+  gtk_text_buffer_get_end_iter(j->out, &e);
+  gtk_text_buffer_insert(j->out, &e, piece, -1);
+}
+static void on_ai_done(const char *err, gpointer d) {
+  AiJob *j = d;
+  g_clear_object(&j->cancel);
+  j->done = TRUE;
+  if (err) {
+    gtk_text_buffer_set_text(j->out, err, -1);
+    gtk_label_set_text(GTK_LABEL(j->state), "");
+    return;
+  }
+  gtk_label_set_text(GTK_LABEL(j->state), "Lumi peut se tromper : relisez avant d'utiliser.");
+  gtk_widget_set_sensitive(j->repl, TRUE);
+  gtk_widget_set_sensitive(j->ins, TRUE);
+  gtk_widget_set_sensitive(j->copy, TRUE);
+}
+static gboolean on_ai_key(GtkWidget *w, GdkEventKey *e, gpointer d) {
+  if (e->keyval == GDK_KEY_Escape) { gtk_widget_destroy(w); return TRUE; }
+  return FALSE;
+}
+
+static void on_ai_action(GtkMenuItem *mi, gpointer d) {
+  if (!cur) return;
+  guint k = GPOINTER_TO_UINT(d);
+  char *why = NULL;
+  GtkTextBuffer *b = GTK_TEXT_BUFFER(cur->buf);
+  GtkTextIter a, e;
+  if (!gtk_text_buffer_get_selection_bounds(b, &a, &e)) gtk_text_buffer_get_bounds(b, &a, &e);
+  char *text = gtk_text_buffer_get_text(b, &a, &e, FALSE);
+  /* Petit modele : on limite la longueur envoyee (~3000 mots) */
+  if (g_utf8_strlen(text, -1) > 12000) { char *c = g_utf8_substring(text, 0, 12000); g_free(text); text = c; }
+
+  AiJob *j = g_new0(AiJob, 1);
+  j->doc = cur;
+  j->start = gtk_text_buffer_create_mark(b, NULL, &a, TRUE);
+  j->end = gtk_text_buffer_create_mark(b, NULL, &e, FALSE);
+  j->w = gtk_window_new(GTK_WINDOW_TOPLEVEL);
+  add_class(j->w, "aiwin");
+  gtk_window_set_transient_for(GTK_WINDOW(j->w), GTK_WINDOW(win));
+  gtk_window_set_modal(GTK_WINDOW(j->w), TRUE);
+  gtk_window_set_title(GTK_WINDOW(j->w), AI_ACTIONS[k].title);
+  gtk_window_set_titlebar(GTK_WINDOW(j->w), gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0));
+  g_signal_connect(j->w, "destroy", G_CALLBACK(on_ai_destroy), j);
+  g_signal_connect(j->w, "key-press-event", G_CALLBACK(on_ai_key), NULL);
+  GtkWidget *v = gtk_box_new(GTK_ORIENTATION_VERTICAL, 12);
+  add_class(v, "aibox");
+  GtkWidget *h = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+  gtk_container_add(GTK_CONTAINER(h), icon_new("sparkle", R_PRI, 20)->img);
+  gtk_container_add(GTK_CONTAINER(h), label(AI_ACTIONS[k].title, "aititle", 0));
+  gtk_container_add(GTK_CONTAINER(v), h);
+  GtkWidget *sc = gtk_scrolled_window_new(NULL, NULL);
+  gtk_widget_set_size_request(sc, 560, 300);
+  j->tv = gtk_text_view_new();
+  gtk_text_view_set_editable(GTK_TEXT_VIEW(j->tv), FALSE);
+  gtk_text_view_set_wrap_mode(GTK_TEXT_VIEW(j->tv), GTK_WRAP_WORD_CHAR);
+  gtk_text_view_set_left_margin(GTK_TEXT_VIEW(j->tv), 12);
+  gtk_text_view_set_right_margin(GTK_TEXT_VIEW(j->tv), 12);
+  gtk_text_view_set_top_margin(GTK_TEXT_VIEW(j->tv), 10);
+  j->out = gtk_text_view_get_buffer(GTK_TEXT_VIEW(j->tv));
+  gtk_container_add(GTK_CONTAINER(sc), j->tv);
+  gtk_container_add(GTK_CONTAINER(v), sc);
+  GtkWidget *f = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+  j->state = label("Lumi rédige…", "aifoot", 0);
+  gtk_widget_set_hexpand(j->state, TRUE);
+  gtk_container_add(GTK_CONTAINER(f), j->state);
+  j->copy = gtk_button_new_with_label("Copier");
+  add_class(j->copy, "tbtn");
+  g_signal_connect(j->copy, "clicked", G_CALLBACK(on_ai_copy), j);
+  j->ins = gtk_button_new_with_label("Insérer après");
+  add_class(j->ins, "tbtn");
+  g_signal_connect(j->ins, "clicked", G_CALLBACK(on_ai_insert), j);
+  j->repl = gtk_button_new_with_label("Remplacer");
+  add_class(j->repl, "fbtn");
+  g_signal_connect(j->repl, "clicked", G_CALLBACK(on_ai_replace), j);
+  gtk_container_add(GTK_CONTAINER(f), j->copy);
+  gtk_container_add(GTK_CONTAINER(f), j->ins);
+  gtk_container_add(GTK_CONTAINER(f), j->repl);
+  gtk_widget_set_sensitive(j->copy, FALSE);
+  gtk_widget_set_sensitive(j->ins, FALSE);
+  gtk_widget_set_sensitive(j->repl, FALSE);
+  gtk_container_add(GTK_CONTAINER(v), f);
+  gtk_container_add(GTK_CONTAINER(j->w), v);
+  gtk_widget_show_all(j->w);
+
+  if (!*g_strstrip(text)) {
+    gtk_text_buffer_set_text(j->out, "Le document est vide : écrivez ou collez un texte d'abord.", -1);
+    gtk_label_set_text(GTK_LABEL(j->state), "");
+  } else if (!lumina_ai_ready(&why)) {
+    gtk_text_buffer_set_text(j->out, why, -1);
+    gtk_label_set_text(GTK_LABEL(j->state), "");
+  } else {
+    j->cancel = g_cancellable_new();
+    lumina_ai_ask(AI_ACTIONS[k].prompt, text, on_ai_piece, on_ai_done, j, j->cancel);
+  }
+  g_free(why); g_free(text);
+}
+
+static void on_ai_menu(GtkWidget *bt, gpointer x) {
+  GtkWidget *m = gtk_menu_new();
+  for (guint i = 0; i < G_N_ELEMENTS(AI_ACTIONS); i++) {
+    GtkWidget *mi = gtk_menu_item_new_with_label(AI_ACTIONS[i].title);
+    g_signal_connect(mi, "activate", G_CALLBACK(on_ai_action), GUINT_TO_POINTER(i));
+    gtk_menu_shell_append(GTK_MENU_SHELL(m), mi);
+  }
+  gtk_widget_show_all(m);
+  gtk_menu_popup_at_widget(GTK_MENU(m), bt, GDK_GRAVITY_SOUTH_EAST, GDK_GRAVITY_NORTH_EAST, NULL);
+}
+
 /* Deposer des fichiers sur la fenetre : ils s'ouvrent */
 static void on_drop(GtkWidget *w, GdkDragContext *c, gint x, gint y, GtkSelectionData *sd, guint info, guint t, gpointer d) {
   char **uris = gtk_selection_data_get_uris(sd);
@@ -445,6 +639,7 @@ int main(int argc, char **argv) {
   g_signal_connect(sv, "clicked", G_CALLBACK(on_save), NULL);
   gtk_header_bar_pack_end(GTK_HEADER_BAR(hb), sv);
   gtk_header_bar_pack_end(GTK_HEADER_BAR(hb), round_btn("search", "Rechercher (Ctrl+F)", G_CALLBACK(on_find_btn), NULL));
+  gtk_header_bar_pack_end(GTK_HEADER_BAR(hb), round_btn("sparkle", "Lumi : résumer, améliorer, corriger, traduire", G_CALLBACK(on_ai_menu), NULL));
   redo_b = round_btn("fwd", "Rétablir (Ctrl+Maj+Z)", G_CALLBACK(on_redo), NULL);
   undo_b = round_btn("back", "Annuler (Ctrl+Z)", G_CALLBACK(on_undo), NULL);
   gtk_header_bar_pack_end(GTK_HEADER_BAR(hb), redo_b);

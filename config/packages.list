@@ -157,5 +157,8 @@ power-profiles-daemon
 # Securite : pare-feu (nftables). Pas d'AppArmor : ses profils (applis
 # absentes) ralentissaient chaque demarrage d'une minute sur un vieux PC.
 nftables
+# Lumi (IA locale, llama.cpp) : OpenMP, TLS
+libgomp1
+libssl3t64
 # Traductions de GLib (unites ko/Mo/Go en francais)
 libglib2.0-data

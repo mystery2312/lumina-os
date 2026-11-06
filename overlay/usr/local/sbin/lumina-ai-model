@@ -1,0 +1,54 @@
+#!/bin/bash
+# Modeles de Lumi (IA locale), partages par tous les comptes du PC et
+# conserves sur la partition d'etat (/var/lib/lumina/ai) : une mise a jour
+# du systeme ne les efface pas.
+#
+#   lumina-ai-model install <id>   via pkexec : telecharge, verifie, installe
+#   lumina-ai-model remove <id>    via pkexec
+#   lumina-ai-model list           id|etat (installe|absent|telechargement)
+#
+# Seuls les modeles du catalogue /usr/share/lumina/ai-models.conf sont
+# acceptes, et un fichier n'est installe que si son empreinte SHA-256 est
+# celle du catalogue.
+set -euo pipefail
+export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+CAT=/usr/share/lumina/ai-models.conf
+D=/var/lib/lumina/ai
+
+entry() {   # entry <id> -> ligne du catalogue
+  grep -vE '^\s*(#|$)' "$CAT" | awk -F'|' -v id="$1" '$1 == id' | head -1
+}
+
+case "${1:-}" in
+  list)
+    grep -vE '^\s*(#|$)' "$CAT" | while IFS='|' read -r id _; do
+      if [ -f "$D/$id.gguf" ]; then echo "$id|installe"
+      elif [ -f "$D/$id.gguf.part" ]; then echo "$id|telechargement|$(stat -c %s "$D/$id.gguf.part")"
+      else echo "$id|absent"; fi
+    done
+    ;;
+  install)
+    E=$(entry "${2:-}"); [ -n "$E" ] || { echo "Modèle inconnu." >&2; exit 2; }
+    IFS='|' read -r id _ _ size sha url <<<"$E"
+    mountpoint -q /var/lib/lumina || { echo "Partition d'état absente." >&2; exit 1; }
+    mkdir -p "$D"; chmod 755 "$D"
+    # Place libre : la taille du modele + 200 Mo de marge
+    free=$(( $(df --output=avail -B1 "$D" | tail -1) ))
+    [ "$free" -gt $(( size + 200 * 1048576 )) ] || { echo "Pas assez d'espace libre." >&2; exit 3; }
+    exec 9>"$D/.lock"; flock -n 9 || { echo "Téléchargement déjà en cours." >&2; exit 4; }
+    curl -fL --retry 3 --retry-delay 5 -C - -o "$D/$id.gguf.part" "$url" 2>/dev/null \
+      || { echo "Téléchargement interrompu (réseau ?). Réessayez : il reprendra où il s'est arrêté." >&2; exit 5; }
+    if ! echo "$sha  $D/$id.gguf.part" | sha256sum -c --status; then
+      rm -f "$D/$id.gguf.part"
+      echo "Fichier reçu altéré : il a été supprimé." >&2; exit 6
+    fi
+    chmod 644 "$D/$id.gguf.part"; mv "$D/$id.gguf.part" "$D/$id.gguf"
+    ;;
+  remove)
+    E=$(entry "${2:-}"); [ -n "$E" ] || { echo "Modèle inconnu." >&2; exit 2; }
+    id=${E%%|*}
+    rm -f "$D/$id.gguf" "$D/$id.gguf.part"
+    pkill -f "lumina-ai/llama-server.*$id.gguf" 2>/dev/null || true
+    ;;
+  *) echo "Usage : lumina-ai-model install|remove <id> | list" >&2; exit 2 ;;
+esac

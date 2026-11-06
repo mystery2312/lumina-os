@@ -17,6 +17,7 @@
 #include <glib/gstdio.h>
 #include <sys/statvfs.h>
 #include "lumina-sys.h"
+#include "lumina-ai.h"
 #include <gtk-layer-shell.h>
 #include <gio/gdesktopappinfo.h>
 #include <gdk/gdkwayland.h>

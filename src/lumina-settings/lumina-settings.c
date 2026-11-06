@@ -1419,6 +1419,7 @@ static void build_about(void) {
 }
 
 #include "settings-more.c"
+#include "settings-lumi.c"
 
 /* ------------------------------------------------------------------ */
 /* Construction                                                        */
@@ -1434,6 +1435,7 @@ static const struct { const char *id, *glyph, *title; void (*build)(void); } SEC
   {"compte", "lock", "Compte et verrouillage", build_account},
   {"linux", "term", "Linux", build_linux},
   {"android", "android", "Applis Android", build_android},
+  {"lumi", "sparkle", "Lumi", build_lumi},
   {"imprimantes", "print", "Imprimantes", build_printers},
   {"heure", "clock", "Date et heure", build_datetime},
   {"energie", "battery", "Énergie", build_power},
@@ -1486,6 +1488,7 @@ static const struct { const char *id, *kw; } KEYWORDS[] = {
   {"affichage", "theme sombre clair fond d ecran couleur luminosite eclairage nocturne veille photo"},
   {"ecrans", "resolution definition taille zoom echelle rotation second ecran projecteur recopie"},
   {"son", "volume haut-parleur micro casque sortie entree muet"},
+  {"lumi", "ia intelligence artificielle assistant modele chat resumer rediger"},
   {"clavier", "langue azerty qwerty disposition traduction"},
   {"souris", "pave tactile touchpad vitesse defilement clic gaucher"},
   {"compte", "mot de passe pin code verrouillage nom personnes invite utilisateur"},

@@ -100,4 +100,15 @@ gtk-update-icon-cache -q -f /usr/share/icons/hicolor 2>/dev/null || true
 # (glib-compile-schemas : copie privee de libglib, libglib2.0-bin absent)
 /usr/lib/x86_64-linux-gnu/glib-2.0/glib-compile-schemas /usr/share/glib-2.0/schemas || true
 
+# Demarrage plus court (un vieux PC le sent) :
+# - e2scrub ne sert qu'aux volumes LVM, absents ici ;
+# - udisks2 (cles USB dans Fichiers) demarre a la demande, via D-Bus ;
+# - cache des bibliotheques construit ici : ldconfig et
+#   systemd-update-done ne bloquent plus le premier demarrage (ni celui qui
+#   suit une mise a jour).
+systemctl disable e2scrub_reap.service e2scrub_all.timer 2>/dev/null || true
+systemctl disable udisks2.service 2>/dev/null || true
+ldconfig
+touch /etc/.updated /var/.updated
+
 echo "lumina-setup: termine"

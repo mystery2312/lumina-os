@@ -1281,7 +1281,35 @@ static gboolean find_start(gpointer d) {
   return G_SOURCE_REMOVE;
 }
 
+/* « Demander a Lumi » : la recherche ressemble a une question (plusieurs
+   mots ou un point d'interrogation) et Lumi est active. */
+static GtkWidget *lumi_btn, *lumi_l;
+static void on_lumi_ask(GtkButton *b, gpointer d) {
+  const char *q = gtk_entry_get_text(GTK_ENTRY(search_entry));
+  const char *argv[] = {"lumina-lumi", q, NULL};
+  spawn_async(argv);
+  close_panels();
+}
+static void lumi_search(const char *q) {
+  char *t = g_strstrip(g_strdup(q));
+  gboolean question = strchr(t, ' ') || strchr(t, '?');
+  gboolean on = FALSE;
+  if (*t && question) {
+    LuminaAiConfig *c = lumina_ai_config_load();
+    on = c->mode != LUMINA_AI_OFF;
+    lumina_ai_config_free(c);
+  }
+  if (on) {
+    char *l = g_strdup_printf("Demander à Lumi : « %s »", t);
+    gtk_label_set_text(GTK_LABEL(lumi_l), l);
+    g_free(l);
+  }
+  gtk_widget_set_visible(lumi_btn, on);
+  g_free(t);
+}
+
 static void extras_search_changed(const char *q) {
+  lumi_search(q);
   char *r = *q ? calc_eval(q) : NULL;
   if (r) {
     char *t = g_strdup_printf("= %s", r);
@@ -1313,6 +1341,20 @@ static void extras_drawer(GtkWidget *v) {
   gtk_widget_set_no_show_all(calc_btn, TRUE);
   gtk_widget_hide(calc_btn);
   gtk_container_add(GTK_CONTAINER(v), calc_btn);
+  lumi_btn = gtk_button_new();
+  add_class(lumi_btn, "fileres");
+  GtkWidget *lh = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 12);
+  gtk_container_add(GTK_CONTAINER(lh), icon_new("sparkle", R_PRI, 20)->img);
+  lumi_l = label("", NULL, 0);
+  gtk_label_set_ellipsize(GTK_LABEL(lumi_l), PANGO_ELLIPSIZE_END);
+  gtk_widget_set_hexpand(lumi_l, TRUE);
+  gtk_container_add(GTK_CONTAINER(lh), lumi_l);
+  gtk_container_add(GTK_CONTAINER(lumi_btn), lh);
+  g_signal_connect(lumi_btn, "clicked", G_CALLBACK(on_lumi_ask), NULL);
+  gtk_widget_show_all(lumi_btn);
+  gtk_widget_set_no_show_all(lumi_btn, TRUE);
+  gtk_widget_hide(lumi_btn);
+  gtk_container_add(GTK_CONTAINER(v), lumi_btn);
   files_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 2);
   gtk_container_add(GTK_CONTAINER(v), files_box);
 }

@@ -268,6 +268,7 @@ const char *role_color(int r) {
     case R_ON_TER_C: return P->on_ter_c;
     case R_TER:      return P->ter;
     case R_BAR:      return lumina_bar_light ? "#ffffff" : P->on;
+    case R_ON_PRI:   return P->on_pri;
     default:         return P->pri;
   }
 }
@@ -360,6 +361,10 @@ static const Glyph GLYPHS[] = {
   {"reset",   "<path d='M4 11a8 8 0 1 1 2.3 5.7M4 5v6h6'/><path d='M12 8v4l2.5 1.5'/>"},
   {"user",    "<circle cx='12' cy='8.5' r='4'/><path d='M4.5 20.5a7.5 7.5 0 0 1 15 0'/>"},
   {"monitor", "<rect x='2.5' y='4' width='19' height='13' rx='2.5'/><path d='M8 20.5h8M12 17v3.5'/>"},
+  /* Lumi : etincelles */
+  {"sparkle", "<path d='M10.5 3.5c.7 4.4 2.6 6.3 7 7-4.4.7-6.3 2.6-7 7-.7-4.4-2.6-6.3-7-7 4.4-.7 6.3-2.6 7-7z'/><path d='M18.5 14.5c.3 1.9 1.1 2.7 3 3-1.9.3-2.7 1.1-3 3-.3-1.9-1.1-2.7-3-3 1.9-.3 2.7-1.1 3-3z'/>"},
+  {"send",    "<path d='M21 3 3 10.5l7.2 2.8L13 21z'/><path d='M21 3 10.2 13.3'/>"},
+  {"stop",    "<rect x='6.5' y='6.5' width='11' height='11' rx='2'/>"},
 };
 
 const char *glyph_svg(const char *name) {

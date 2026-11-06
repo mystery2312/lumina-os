@@ -1,0 +1,65 @@
+#!/bin/bash
+# Serveur d'IA locale de Lumi, pour l'utilisateur de la session.
+#
+# Appele par les applis avant chaque demande : rend la main quand le serveur
+# repond (le premier lancement charge le modele : quelques secondes), avec un
+# message d'erreur en francais sur stderr sinon.
+#
+# Confidentialite : le serveur n'ecoute PAS sur le reseau, seulement sur un
+# socket UNIX dans $XDG_RUNTIME_DIR (lisible par cet utilisateur seul).
+# Sobriete : il s'arrete seul apres 15 minutes sans demande, et rend toute
+# la memoire.
+set -u
+RUN=${XDG_RUNTIME_DIR:?}
+SOCK=$RUN/lumina-ai.sock
+STAMP=$RUN/lumina-ai.last
+LOG=$RUN/lumina-ai.log
+LIB=/usr/lib/lumina-ai
+IDLE=900
+
+touch "$STAMP"
+alive() { curl -s --max-time 2 --unix-socket "$SOCK" http://localhost/health 2>/dev/null | grep -q '"ok"'; }
+alive && exit 0
+
+MODEL=leger
+[ -r "$HOME/.config/lumina/ai.conf" ] && MODEL=$(sed -n 's/^MODEL=//p' "$HOME/.config/lumina/ai.conf" | head -1)
+case "$MODEL" in *[!a-z0-9_-]*|"") MODEL=leger ;; esac
+FILE=/var/lib/lumina/ai/$MODEL.gguf
+[ -r "$FILE" ] || { echo "Le modèle de Lumi n'est pas téléchargé (Réglages › Lumi)." >&2; exit 1; }
+
+# Un seul demarrage a la fois (plusieurs applis peuvent demander ensemble)
+exec 9>"$RUN/lumina-ai.lock"
+flock -w 120 9 || { echo "Lumi est occupé, réessayez." >&2; exit 1; }
+alive && exit 0
+
+pkill -u "$(id -u)" -f "^$LIB/llama-server" 2>/dev/null
+rm -f "$SOCK"
+# Fils de calcul : les coeurs du PC, sans depasser 4 (au-dela, peu de gain
+# et le reste du systeme ralentit).
+T=$(nproc); [ "$T" -gt 4 ] && T=4
+# Memoire : contexte de 4096 jetons ; le modele est projete en memoire
+# (mmap) : le noyau peut en rendre une partie si le systeme en manque.
+setsid nice -n 5 "$LIB/llama-server" -m "$FILE" --host "$SOCK" --alias lumi \
+  -c 4096 -t "$T" --parallel 1 --no-webui --sleep-idle-seconds 300 >"$LOG" 2>&1 < /dev/null 9>&- &
+PID=$!
+
+# Arret apres inactivite
+( exec 9>&-
+  while kill -0 "$PID" 2>/dev/null; do
+    sleep 60
+    [ $(( $(date +%s) - $(stat -c %Y "$STAMP" 2>/dev/null || echo 0) )) -gt $IDLE ] && { kill "$PID"; break; }
+  done
+  rm -f "$SOCK" ) >/dev/null 2>&1 &
+
+for _ in $(seq 240); do
+  alive && exit 0
+  kill -0 "$PID" 2>/dev/null || break
+  sleep 0.5
+done
+kill "$PID" 2>/dev/null
+if grep -qiE "out of memory|failed to allocate|cannot allocate" "$LOG" 2>/dev/null; then
+  echo "Pas assez de mémoire pour ce modèle. Choisissez le modèle « Léger » (Réglages › Lumi)." >&2
+else
+  echo "Lumi n'a pas pu démarrer." >&2
+fi
+exit 1
