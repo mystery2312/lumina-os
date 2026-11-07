@@ -227,7 +227,7 @@ static void extras_shelf_button(GtkWidget *b, const char *key, gboolean has_app)
 static void register_filechooser(GDBusConnection *c);
 static GtkWidget *clock_l, *date_l, *tray_btn, *batt_l, *launch_btn;
 static Icon *tray_net_ic, *tray_batt_ic;
-static GtkWidget *search_entry, *flow, *flow_empty, *flow_scroll, *recent_box, *recent_label;
+static GtkWidget *search_entry, *flow, *flow_empty, *flow_scroll, *recent_box, *recent_label, *all_label;
 static GtkWidget *qs_time, *qs_date;
 static GtkWidget *wifi_tile, *wifi_sub, *nets_rev, *nets_box, *wifi_power_btn;
 static Icon *wifi_ic;
@@ -658,6 +658,8 @@ static GAppInfo *first_match(void) {
 
 static void on_search_changed(GtkEditable *e, gpointer d) {
   gtk_flow_box_invalidate_filter(GTK_FLOW_BOX(flow));
+  /* En recherche : pas de titre de section au-dessus des resultats */
+  if (all_label) gtk_widget_set_visible(all_label, !*gtk_entry_get_text(GTK_ENTRY(search_entry)));
   gtk_widget_set_visible(flow_empty, first_match() == NULL);
   extras_search_changed(gtk_entry_get_text(GTK_ENTRY(search_entry)));
 }
@@ -2009,7 +2011,8 @@ static void build_drawer(void) {
   recent_box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 4);
   gtk_box_set_homogeneous(GTK_BOX(recent_box), TRUE);
   gtk_container_add(GTK_CONTAINER(v), recent_box);
-  gtk_container_add(GTK_CONTAINER(v), label("Toutes les applications", "section", 0));
+  all_label = label("Toutes les applications", "section", 0);
+  gtk_container_add(GTK_CONTAINER(v), all_label);
 
   flow = gtk_flow_box_new();
   gtk_flow_box_set_selection_mode(GTK_FLOW_BOX(flow), GTK_SELECTION_NONE);

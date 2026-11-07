@@ -546,6 +546,7 @@ static void on_ai_action(GtkMenuItem *mi, gpointer d) {
   gtk_widget_set_size_request(sc, 560, 300);
   j->tv = gtk_text_view_new();
   gtk_text_view_set_editable(GTK_TEXT_VIEW(j->tv), FALSE);
+  gtk_text_view_set_cursor_visible(GTK_TEXT_VIEW(j->tv), FALSE);
   gtk_text_view_set_wrap_mode(GTK_TEXT_VIEW(j->tv), GTK_WRAP_WORD_CHAR);
   gtk_text_view_set_left_margin(GTK_TEXT_VIEW(j->tv), 12);
   gtk_text_view_set_right_margin(GTK_TEXT_VIEW(j->tv), 12);

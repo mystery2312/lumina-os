@@ -192,7 +192,7 @@ static void build_lumi(void) {
   long mem = ai_mem_mb();
   char *intro = g_strdup_printf("Le modèle tourne sur ce PC : vos textes ne quittent jamais l'appareil, même hors connexion. "
                                 "Il occupe la mémoire seulement quand vous utilisez Lumi. Ce PC a %ld Go de mémoire : %s",
-                                (mem + 512) / 1024, mem < 7000 ? "le modèle « Léger » est conseillé." : "les deux modèles conviennent.");
+                                (mem + 512) / 1024, mem < 3500 ? "le modèle « Léger » est le seul adapté." : "le modèle « Équilibré » est conseillé.");
   gtk_container_add(GTK_CONTAINER(ai_local_box), desc(intro));
   g_free(intro);
   GtkWidget *mg = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);

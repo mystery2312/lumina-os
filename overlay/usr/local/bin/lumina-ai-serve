@@ -21,9 +21,11 @@ touch "$STAMP"
 alive() { curl -s --max-time 2 --unix-socket "$SOCK" http://localhost/health 2>/dev/null | grep -q '"ok"'; }
 alive && exit 0
 
-MODEL=leger
+MODEL=
 [ -r "$HOME/.config/lumina/ai.conf" ] && MODEL=$(sed -n 's/^MODEL=//p' "$HOME/.config/lumina/ai.conf" | head -1)
-case "$MODEL" in *[!a-z0-9_-]*|"") MODEL=leger ;; esac
+case "$MODEL" in *[!a-z0-9_-]*) MODEL= ;; esac
+# Sans choix : « Equilibre » s'il est installe (plus fiable), sinon « Leger »
+[ -n "$MODEL" ] || { [ -r /var/lib/lumina/ai/equilibre.gguf ] && MODEL=equilibre || MODEL=leger; }
 FILE=/var/lib/lumina/ai/$MODEL.gguf
 [ -r "$FILE" ] || { echo "Le modèle de Lumi n'est pas téléchargé (Réglages › Lumi)." >&2; exit 1; }
 

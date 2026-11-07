@@ -11,6 +11,7 @@
 #include <fcntl.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#include <stdlib.h>
 
 /* ------------------------------------------------------------------ */
 /* Configuration                                                       */
@@ -37,7 +38,15 @@ LuminaAiConfig *lumina_ai_config_load(void) {
     g_strfreev(l);
   }
   g_free(t); g_free(p);
-  if (!c->model || !*c->model) { g_free(c->model); c->model = g_strdup("leger"); }
+  if (!c->model || !*c->model) {
+    /* Par defaut : « Equilibre » des 4 Go de memoire (bien plus fiable) */
+    char *mi = NULL;
+    long kb = 0;
+    if (g_file_get_contents("/proc/meminfo", &mi, NULL, NULL) && strstr(mi, "MemTotal:")) kb = atol(strstr(mi, "MemTotal:") + 9);
+    g_free(mi);
+    g_free(c->model);
+    c->model = g_strdup(kb >= 3500L * 1024 ? "equilibre" : "leger");
+  }
   return c;
 }
 
@@ -213,6 +222,12 @@ static void on_cancel(GCancellable *c, gpointer d) {
 static void on_curl_exit(GObject *o, GAsyncResult *res, gpointer d) {
   Req *r = d;
   g_subprocess_wait_finish(G_SUBPROCESS(o), res, NULL);
+  if (r->conf->mode == LUMINA_AI_REMOTE) {
+    /* La cle ne reste pas sur le disque au-dela de la requete */
+    char *h = g_build_filename(g_get_user_runtime_dir(), "lumina-ai-auth", NULL);
+    g_unlink(h);
+    g_free(h);
+  }
   if (r->got) { req_finish(r, NULL); return; }
   char *msg = lumina_ai_json_string_at(r->raw->str, "message");
   char *err;
