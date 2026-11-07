@@ -168,7 +168,8 @@ static void on_ai_remote_save(GtkButton *b, gpointer d) {
 
 static void build_lumi(void) {
   GtkWidget *p = page_box("lumi", "Lumi");
-  gtk_container_add(GTK_CONTAINER(p), desc("Lumi répond à vos questions, résume et reformule vos textes (Texte, recherche du lanceur, Windows + Espace). "
+  gtk_container_add(GTK_CONTAINER(p), desc("Lumi répond à vos questions (Windows + Espace), aide à écrire dans toutes les applis (sélectionnez un texte puis Windows + E) "
+                                           "et résume les pages web (clic droit dans le navigateur). "
                                            "Il peut se tromper : vérifiez les informations importantes."));
   GtkWidget *g = group(p, NULL);
   ai_mode = gtk_combo_box_text_new();

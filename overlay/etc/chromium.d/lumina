@@ -37,6 +37,14 @@ if [ "$(cat "${XDG_CONFIG_HOME:-$HOME/.config}/lumina/theme" 2>/dev/null)" = dar
   export CHROMIUM_FLAGS="$CHROMIUM_FLAGS --force-dark-mode"
 fi
 
+# Lumi dans le navigateur (clic droit : resumer, expliquer, questionner) :
+# module integre, charge depuis le systeme en lecture seule. Chromium ne
+# l'accepte en ligne de commande qu'avec ce reglage de fonctionnalite ; si
+# browser.conf ajoute un --disable-features, y reprendre ce nom (separes
+# par des virgules : seul le dernier --disable-features compte).
+export CHROMIUM_FLAGS="$CHROMIUM_FLAGS --load-extension=/usr/share/lumina/chromium-lumi \
+ --disable-features=DisableLoadExtensionCommandLineSwitch"
+
 # Drapeaux propres a la machine (voir /etc/lumina/browser.conf)
 LUMINA_BROWSER_EXTRA_FLAGS=""
 [ -r /etc/lumina/browser.conf ] && . /etc/lumina/browser.conf

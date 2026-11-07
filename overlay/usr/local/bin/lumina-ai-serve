@@ -39,10 +39,12 @@ rm -f "$SOCK"
 # Fils de calcul : les coeurs du PC, sans depasser 4 (au-dela, peu de gain
 # et le reste du systeme ralentit).
 T=$(nproc); [ "$T" -gt 4 ] && T=4
+# Lecture par paquets de 256 jetons : la progression s'affiche (Lumi lit
+# la page... 40 %) et la memoire de calcul reste petite.
 # Memoire : contexte de 4096 jetons ; le modele est projete en memoire
 # (mmap) : le noyau peut en rendre une partie si le systeme en manque.
 setsid nice -n 5 "$LIB/llama-server" -m "$FILE" --host "$SOCK" --alias lumi \
-  -c 4096 -t "$T" --parallel 1 --no-webui --sleep-idle-seconds 300 >"$LOG" 2>&1 < /dev/null 9>&- &
+  -c 4096 -b 256 -ub 256 -t "$T" --parallel 1 --no-webui --sleep-idle-seconds 300 >"$LOG" 2>&1 < /dev/null 9>&- &
 PID=$!
 
 # Arret apres inactivite

@@ -38,6 +38,12 @@ typedef void (*LuminaAiDone)(const char *error, gpointer d);   /* error NULL = s
 void lumina_ai_chat(const char *const *messages, LuminaAiPiece on_piece, LuminaAiDone on_done,
                     gpointer d, GCancellable *cancel);
 
+/* Idem, avec la progression de la lecture de la demande (0..1) par le
+   moteur local, avant le premier mot de la reponse : utile sur un PC lent. */
+typedef void (*LuminaAiProgress)(double fraction, gpointer d);
+void lumina_ai_chat_progress(const char *const *messages, LuminaAiProgress on_progress, LuminaAiPiece on_piece,
+                             LuminaAiDone on_done, gpointer d, GCancellable *cancel);
+
 /* Raccourci : une consigne systeme + un texte. */
 void lumina_ai_ask(const char *system, const char *user, LuminaAiPiece on_piece, LuminaAiDone on_done,
                    gpointer d, GCancellable *cancel);

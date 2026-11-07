@@ -1,0 +1,18 @@
+{
+  "manifest_version": 3,
+  "name": "Lumi",
+  "description": "Lumi, l'assistant de LuminaOS : résumer une page, expliquer un passage, poser une question sur ce que vous lisez.",
+  "version": "1.0",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA1S2Ecj4EZn10c1KNwbSc7bcU8ntDN8A3rcWt78c3SIfzLm8px9T52x4HLoCfggGfZd4dwlXsuK0bEg96/jemfs7TWgPmE/KoAr+u4i7bRPXVlsQmykm5XvlEwAjfEtljv3RAfGbZ02GUNpUirWsfkypvrmNlgREjeLTbGm6+1RFaOIRgEjp0BOWUMBtcy0Gtnm2X0bxtmhfw4hoTX6oR/2EInom3Y+TQkQ4HlQTAxINSpZF/jKgbjO2f1R68S2iuNJ8MDtnNHq3FbhhWTRU8yBi4MSrbmkHJ7zQUHXSCeuizno3dvHKFKdkqeD5bTO/mUScEwV81rIBy9z14+wEosQIDAQAB",
+  "minimum_chrome_version": "120",
+  "permissions": ["contextMenus", "activeTab", "scripting", "nativeMessaging"],
+  "background": { "service_worker": "background.js" },
+  "action": {
+    "default_title": "Résumer cette page avec Lumi",
+    "default_icon": { "16": "icon16.png", "32": "icon32.png" }
+  },
+  "commands": {
+    "_execute_action": { "suggested_key": { "default": "Alt+L" }, "description": "Résumer cette page avec Lumi" }
+  },
+  "icons": { "16": "icon16.png", "32": "icon32.png", "48": "icon48.png", "128": "icon128.png" }
+}

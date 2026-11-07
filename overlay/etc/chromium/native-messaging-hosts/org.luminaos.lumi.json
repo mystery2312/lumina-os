@@ -1,0 +1,7 @@
+{
+  "name": "org.luminaos.lumi",
+  "description": "Lumi, l'assistant de LuminaOS",
+  "path": "/usr/local/bin/lumina-lumi",
+  "type": "stdio",
+  "allowed_origins": ["chrome-extension://ikolipepicfelknakepfaeijepdnkhph/"]
+}

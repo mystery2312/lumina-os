@@ -6,10 +6,17 @@
  * dans Reglages > Lumi. Les reponses s'affichent au fil de l'eau.
  *
  *   lumina-lumi ["question"]   ouvre Lumi, et pose la question s'il y en a une
+ *   lumina-lumi --context F    Lumi sur une page web ou un passage (fichier
+ *                              JSON prive envoye par le module du navigateur,
+ *                              efface des sa lecture)
+ *   lumina-lumi --write        aide a l'ecriture dans n'importe quelle appli
+ *   lumina-lumi chrome-extension://...   hote de messagerie native (Chromium)
  */
 #include "lumina-ui.h"
 #include "lumina-ai.h"
+#include "lumi.h"
 #include <string.h>
+#include <glib/gstdio.h>
 
 static const char *CSS =
   "* { font-family: 'Roboto', 'DejaVu Sans', sans-serif; }\n"
@@ -35,12 +42,19 @@ static const char *CSS =
   ".composer entry { background: transparent; border: none; box-shadow: none; color: @on; font-size: 14px; min-height: 40px; caret-color: @pri; }\n"
   ".send { background: @pri; color: @on_pri; border-radius: 20px; min-width: 40px; min-height: 40px; padding: 0; }\n"
   ".send:disabled { background: alpha(@on, 0.12); }\n"
-  ".foot { color: @on_var; font-size: 11.5px; margin: 0 0 10px 0; }\n";
+  ".foot { color: @on_var; font-size: 11.5px; margin: 0 0 10px 0; }\n"
+  ".ctx { background: @c_low; border-radius: 16px; padding: 10px 14px; margin: 4px 14px 0 14px; }\n"
+  ".ctxtitle { font-size: 13.5px; color: @on; font-weight: 500; }\n"
+  ".ctxsub { font-size: 12px; color: @on_var; }\n";
 
 static const char *SYSTEM_PROMPT =
   "Tu es Lumi, l'assistant intégré à LuminaOS, un système d'exploitation léger. "
   "Réponds en français, de façon claire, utile et concise, sauf si on te demande une autre langue. "
   "Si tu ne sais pas, dis-le simplement plutôt que d'inventer.";
+
+/* Contexte : page web ou passage envoye par le navigateur */
+static char *ctx_prompt, *ctx_title, *ctx_host, *ctx_action;
+static gboolean ctx_selection, ctx_cut;
 
 static GtkWidget *win, *chat, *scroll, *entry, *send_b, *empty_box, *foot_l;
 static Icon *send_ic;
@@ -124,6 +138,13 @@ static void on_piece(const char *piece, gpointer d) {
   g_idle_add(scroll_end, NULL);
 }
 
+static void on_progress(double f, gpointer d) {
+  if (!answer_l || answer->len) return;
+  char *t = g_strdup_printf("%s… %d %%", ctx_prompt ? "Lumi lit la page" : "Lumi lit votre demande", (int)(f * 100));
+  gtk_label_set_text(GTK_LABEL(answer_l), t);
+  g_free(t);
+}
+
 static void on_done(const char *err, gpointer d) {
   if (err) {
     if (!answer->len) { set_msg(answer_l, err); add_class(answer_l, "err"); }
@@ -148,7 +169,7 @@ static void ask(const char *q) {
   /* Petit modele, petit contexte : consigne + 10 derniers messages */
   GPtrArray *m = g_ptr_array_new();
   g_ptr_array_add(m, "system");
-  g_ptr_array_add(m, (gpointer)SYSTEM_PROMPT);
+  g_ptr_array_add(m, ctx_prompt ? ctx_prompt : (gpointer)SYSTEM_PROMPT);
   guint from = history->len > 20 ? history->len - 20 : 0;
   for (guint i = from; i < history->len; i++) g_ptr_array_add(m, history->pdata[i]);
   g_ptr_array_add(m, NULL);
@@ -157,7 +178,7 @@ static void ask(const char *q) {
   answer_l = bubble("…", FALSE);
   busy = g_cancellable_new();
   update_send();
-  lumina_ai_chat((const char *const *)m->pdata, on_piece, on_done, NULL, busy);
+  lumina_ai_chat_progress((const char *const *)m->pdata, on_progress, on_piece, on_done, NULL, busy);
   g_ptr_array_free(m, TRUE);
 }
 
@@ -218,6 +239,65 @@ static void refresh_state(void) {
   g_free(why);
 }
 
+/* Charge le contexte envoye par le navigateur (et efface le fichier).
+   Un petit modele local a une memoire de travail limitee (4096 jetons) :
+   on garde le debut de la page, environ 4000 caracteres (lecture en 30 s
+   a 1 min sur un vieux PC). */
+static void load_context(const char *path) {
+  char *json = NULL;
+  /* Seulement nos fichiers prives de $XDG_RUNTIME_DIR */
+  char *dir = g_path_get_dirname(path), *base = g_path_get_basename(path);
+  gboolean ours = !g_strcmp0(dir, g_get_user_runtime_dir()) && g_str_has_prefix(base, "lumi-context-");
+  g_free(dir); g_free(base);
+  if (!ours || !g_file_get_contents(path, &json, NULL, NULL)) { g_free(json); return; }
+  g_unlink(path);
+  char *text = lumina_ai_json_string_at(json, "text");
+  ctx_title = lumina_ai_json_string_at(json, "title");
+  ctx_action = lumina_ai_json_string_at(json, "action");
+  char *url = lumina_ai_json_string_at(json, "url");
+  ctx_selection = !g_strcmp0(ctx_action, "expliquer");
+  if (url) {
+    GUri *u = g_uri_parse(url, G_URI_FLAGS_NONE, NULL);
+    if (u && g_uri_get_host(u)) ctx_host = g_strdup(g_uri_get_host(u));
+    if (u) g_uri_unref(u);
+  }
+  if (!ctx_title || !*ctx_title) { g_free(ctx_title); ctx_title = g_strdup(ctx_host ? ctx_host : "Page web"); }
+  if (text && *g_strstrip(text)) {
+    LuminaAiConfig *c = lumina_ai_config_load();
+    glong max = c->mode == LUMINA_AI_REMOTE ? 40000 : 4000;
+    lumina_ai_config_free(c);
+    if (g_utf8_strlen(text, -1) > max) { *g_utf8_offset_to_pointer(text, max) = 0; ctx_cut = TRUE; }
+    ctx_prompt = g_strdup_printf(
+      "%s\n\n%s « %s »%s%s :\n<<<\n%s\n>>>\n"
+      "Réponds aux questions en t'appuyant d'abord sur ce contenu. S'il ne contient pas la réponse, dis-le.",
+      SYSTEM_PROMPT, ctx_selection ? "Voici un passage de la page web" : "Voici le contenu de la page web",
+      ctx_title, ctx_host ? " (" : "", ctx_host ? ctx_host : "", text);
+  }
+  g_free(text); g_free(url); g_free(json);
+}
+
+static GtkWidget *context_card(void) {
+  GtkWidget *b = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 10);
+  add_class(b, "ctx");
+  GtkWidget *ic = icon_new(ctx_selection ? "docs" : "web", R_PRI, 20)->img;
+  gtk_widget_set_valign(ic, GTK_ALIGN_CENTER);
+  gtk_container_add(GTK_CONTAINER(b), ic);
+  GtkWidget *t = gtk_box_new(GTK_ORIENTATION_VERTICAL, 2);
+  GtkWidget *l = label(ctx_title, "ctxtitle", 0);
+  gtk_label_set_ellipsize(GTK_LABEL(l), PANGO_ELLIPSIZE_END);
+  gtk_container_add(GTK_CONTAINER(t), l);
+  char *s = !ctx_prompt ? g_strdup("Cette page n'a pas pu être lue (page protégée ou vide).")
+          : g_strdup_printf("%s%s%s", ctx_selection ? "Passage sélectionné" : "Lumi a lu cette page",
+                            ctx_host ? " · " : "", ctx_host ? ctx_host : "");
+  if (ctx_cut) { char *x = g_strconcat(s, " · début seulement (page longue)", NULL); g_free(s); s = x; }
+  GtkWidget *sl = label(s, "ctxsub", 0);
+  gtk_label_set_ellipsize(GTK_LABEL(sl), PANGO_ELLIPSIZE_END);
+  gtk_container_add(GTK_CONTAINER(t), sl);
+  g_free(s);
+  gtk_container_add(GTK_CONTAINER(b), t);
+  return b;
+}
+
 static gboolean on_focus_in(GtkWidget *w, GdkEvent *e, gpointer d) { refresh_state(); return FALSE; }
 
 static gboolean on_key(GtkWidget *w, GdkEventKey *ev, gpointer d) {
@@ -227,7 +307,11 @@ static gboolean on_key(GtkWidget *w, GdkEventKey *ev, gpointer d) {
 
 int main(int argc, char **argv) {
   g_set_prgname("lumina-lumi");
+  /* Lance par Chromium (messagerie native) : pas d'interface ici */
+  if (argc > 1 && g_str_has_prefix(argv[1], "chrome-extension://")) return lumi_host_main(argv[0]);
   gtk_init(&argc, &argv);
+  if (argc > 1 && !strcmp(argv[1], "--write")) return lumi_write_main();
+  if (argc > 2 && !strcmp(argv[1], "--context")) load_context(argv[2]);
   lumina_ui_init(CSS, NULL);
   history = g_ptr_array_new_with_free_func(g_free);
   answer = g_string_new(NULL);
@@ -258,6 +342,7 @@ int main(int argc, char **argv) {
   gtk_window_set_titlebar(GTK_WINDOW(win), hb);
 
   GtkWidget *v = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
+  if (ctx_title) gtk_container_add(GTK_CONTAINER(v), context_card());
   scroll = gtk_scrolled_window_new(NULL, NULL);
   gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(scroll), GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
   gtk_widget_set_vexpand(scroll, TRUE);
@@ -284,6 +369,12 @@ int main(int argc, char **argv) {
   gtk_flow_box_set_row_spacing(GTK_FLOW_BOX(chips), 8);
   gtk_widget_set_halign(chips, GTK_ALIGN_CENTER);
   gtk_widget_set_margin_top(chips, 12);
+  static const char *PAGE_IDEAS[][2] = {
+    {"Résumer la page", "Résume cette page en quelques points."},
+    {"Points clés", "Quels sont les points clés à retenir ?"},
+    {"Expliquer simplement", "Explique simplement de quoi parle cette page."},
+    {"Traduire en français", "Traduis en français l'essentiel de cette page."},
+  };
   static const char *IDEAS[][2] = {
     {"Rédiger un e-mail", "Rédige un e-mail poli pour "},
     {"Expliquer simplement", "Explique-moi simplement "},
@@ -291,9 +382,10 @@ int main(int argc, char **argv) {
     {"Résumer un texte", "Résume ce texte en quelques points :\n"},
   };
   for (guint i = 0; i < G_N_ELEMENTS(IDEAS); i++) {
-    GtkWidget *b = gtk_button_new_with_label(IDEAS[i][0]);
+    const char *const *idea = ctx_prompt ? PAGE_IDEAS[i] : IDEAS[i];
+    GtkWidget *b = gtk_button_new_with_label(idea[0]);
     add_class(b, "chip");
-    g_signal_connect(b, "clicked", G_CALLBACK(on_chip), (gpointer)IDEAS[i][1]);
+    g_signal_connect(b, "clicked", G_CALLBACK(on_chip), (gpointer)idea[1]);
     gtk_container_add(GTK_CONTAINER(chips), b);
   }
   gtk_container_add(GTK_CONTAINER(empty_box), chips);
@@ -337,7 +429,14 @@ int main(int argc, char **argv) {
   refresh_state();
   update_send();
   gtk_widget_grab_focus(entry);
-  if (argc > 1 && *argv[1]) ask(argv[1]);
+  if (ctx_title) {
+    gtk_entry_set_placeholder_text(GTK_ENTRY(entry), "Poser une question sur cette page");
+    char *q = NULL;
+    if (ctx_prompt && !g_strcmp0(ctx_action, "resumer")) q = g_strdup("Résume cette page en quelques points.");
+    else if (ctx_prompt && ctx_selection) q = g_strdup("Explique simplement ce passage.");
+    if (q && lumina_ai_ready(NULL)) ask(q);
+    g_free(q);
+  } else if (argc > 1 && *argv[1]) ask(argv[1]);
   gtk_main();
   return 0;
 }

@@ -63,6 +63,8 @@
     </keybind>
     <!-- Windows + Espace : Lumi, l'assistant -->
     <keybind key="W-space"><action name="Execute" command="lumina-lumi" /></keybind>
+    <!-- Windows + E : Lumi aide a ecrire dans n'importe quelle appli -->
+    <keybind key="W-e"><action name="Execute" command="lumina-lumi --write" /></keybind>
     <!-- Impr : capture de l'ecran ; Maj + Impr : d'une zone -->
     <keybind key="Print"><action name="Execute" command="lumina-screenshot" /></keybind>
     <keybind key="S-Print"><action name="Execute" command="lumina-screenshot --zone" /></keybind>

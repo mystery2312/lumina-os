@@ -187,6 +187,7 @@ char *lumina_ai_json_string_at(const char *json, const char *key) {
 /* Requete                                                             */
 /* ------------------------------------------------------------------ */
 typedef struct {
+  LuminaAiProgress on_progress;
   LuminaAiPiece on_piece;
   LuminaAiDone on_done;
   gpointer d;
@@ -219,9 +220,25 @@ static void on_cancel(GCancellable *c, gpointer d) {
   if (r->proc) g_subprocess_force_exit(r->proc);
 }
 
+/* Premier nombre de "key" dans json (-1 si absent). */
+static double json_number_at(const char *json, const char *key) {
+  char *pat = g_strdup_printf("\"%s\"", key);
+  const char *p = strstr(json, pat);
+  double v = -1;
+  if (p) {
+    p += strlen(pat);
+    while (*p == ' ' || *p == ':') p++;
+    if (g_ascii_isdigit(*p)) v = g_ascii_strtod(p, NULL);
+  }
+  g_free(pat);
+  return v;
+}
+
 static void on_curl_exit(GObject *o, GAsyncResult *res, gpointer d) {
   Req *r = d;
   g_subprocess_wait_finish(G_SUBPROCESS(o), res, NULL);
+  /* curl : 28 = plus aucun signe de vie du moteur (ou duree maximale) */
+  gboolean timeout = g_subprocess_get_if_exited(G_SUBPROCESS(o)) && g_subprocess_get_exit_status(G_SUBPROCESS(o)) == 28;
   if (r->conf->mode == LUMINA_AI_REMOTE) {
     /* La cle ne reste pas sur le disque au-dela de la requete */
     char *h = g_build_filename(g_get_user_runtime_dir(), "lumina-ai-auth", NULL);
@@ -231,7 +248,14 @@ static void on_curl_exit(GObject *o, GAsyncResult *res, gpointer d) {
   if (r->got) { req_finish(r, NULL); return; }
   char *msg = lumina_ai_json_string_at(r->raw->str, "message");
   char *err;
-  if (msg) err = g_strdup_printf("Lumi n'a pas pu répondre : %s", msg);
+  if (msg && strstr(msg, "context size"))
+    err = g_strdup("Ce texte est trop long pour Lumi. Sélectionnez un passage plus court, ou commencez une nouvelle conversation.");
+  else if (msg) err = g_strdup_printf("Lumi n'a pas pu répondre : %s", msg);
+  else if (timeout && r->conf->mode == LUMINA_AI_LOCAL)
+    err = g_strdup_printf("Lumi a mis trop de temps à répondre : ce PC est peut-être trop lent pour %s. %s",
+                          g_strcmp0(r->conf->model, "leger") ? "ce modèle ou pour un texte aussi long" : "un texte aussi long",
+                          g_strcmp0(r->conf->model, "leger") ? "Essayez avec un passage plus court, ou le modèle « Léger » (Réglages › Lumi)."
+                                                             : "Essayez avec un passage plus court.");
   else if (r->conf->mode == LUMINA_AI_REMOTE)
     err = g_strdup("Le service en ligne ne répond pas. Vérifiez la connexion, l'adresse et la clé (Réglages › Lumi).");
   else err = g_strdup("Lumi n'a pas pu répondre. Réessayez dans un instant.");
@@ -247,7 +271,12 @@ static void on_line(GObject *o, GAsyncResult *res, gpointer d) {
   if (g_str_has_prefix(line, "data:")) {
     const char *j = line + 5;
     while (*j == ' ') j++;
-    if (strcmp(j, "[DONE]")) {
+    if (strcmp(j, "[DONE]") && strstr(j, "\"prompt_progress\"")) {
+      /* Lecture de la demande en cours (llama.cpp, return_progress) */
+      double total = json_number_at(j, "total"), done = json_number_at(j, "processed");
+      if (r->on_progress && total > 0 && done >= 0 && !g_cancellable_is_cancelled(r->cancel))
+        r->on_progress(CLAMP(done / total, 0.0, 1.0), r->d);
+    } else if (strcmp(j, "[DONE]")) {
       char *piece = lumina_ai_json_string_at(j, "content");
       if (piece && *piece && !g_cancellable_is_cancelled(r->cancel)) { r->got = TRUE; r->on_piece(piece, r->d); }
       g_free(piece);
@@ -263,8 +292,14 @@ static void start_curl(Req *r) {
   g_ptr_array_add(a, g_strdup("curl"));
   g_ptr_array_add(a, g_strdup("-sS"));
   g_ptr_array_add(a, g_strdup("-N"));
+  /* Pas de duree fixe (un vieux PC peut lire longtemps un long texte) :
+     abandon seulement apres 5 min sans aucune donnee, et au plus 30 min. */
+  g_ptr_array_add(a, g_strdup("--speed-limit"));
+  g_ptr_array_add(a, g_strdup("1"));
+  g_ptr_array_add(a, g_strdup("--speed-time"));
+  g_ptr_array_add(a, g_strdup("300"));
   g_ptr_array_add(a, g_strdup("--max-time"));
-  g_ptr_array_add(a, g_strdup("600"));
+  g_ptr_array_add(a, g_strdup("1800"));
   g_ptr_array_add(a, g_strdup("-H"));
   g_ptr_array_add(a, g_strdup("Content-Type: application/json"));
   g_ptr_array_add(a, g_strdup("--data-binary"));
@@ -322,7 +357,13 @@ static void on_serve_exit(GObject *o, GAsyncResult *res, gpointer d) {
 
 void lumina_ai_chat(const char *const *messages, LuminaAiPiece on_piece, LuminaAiDone on_done,
                     gpointer d, GCancellable *cancel) {
+  lumina_ai_chat_progress(messages, NULL, on_piece, on_done, d, cancel);
+}
+
+void lumina_ai_chat_progress(const char *const *messages, LuminaAiProgress on_progress, LuminaAiPiece on_piece,
+                             LuminaAiDone on_done, gpointer d, GCancellable *cancel) {
   Req *r = g_new0(Req, 1);
+  r->on_progress = on_progress;
   r->on_piece = on_piece; r->on_done = on_done; r->d = d;
   r->cancel = cancel ? g_object_ref(cancel) : g_cancellable_new();
   r->conf = lumina_ai_config_load();
@@ -333,7 +374,9 @@ void lumina_ai_chat(const char *const *messages, LuminaAiPiece on_piece, LuminaA
   GString *b = g_string_new("{");
   char *model = lumina_ai_json_escape(r->conf->mode == LUMINA_AI_REMOTE && r->conf->remote_model && *r->conf->remote_model
                                       ? r->conf->remote_model : "lumi");
-  g_string_append_printf(b, "\"model\":%s,\"stream\":true,\"temperature\":0.5,\"messages\":[", model);
+  g_string_append_printf(b, "\"model\":%s,\"stream\":true,\"temperature\":0.5,%s\"messages\":[", model,
+                         /* progression de la lecture : moteur local seulement */
+                         r->conf->mode == LUMINA_AI_LOCAL ? "\"return_progress\":true," : "");
   g_free(model);
   for (int i = 0; messages[i] && messages[i + 1]; i += 2) {
     char *role = lumina_ai_json_escape(messages[i]), *content = lumina_ai_json_escape(messages[i + 1]);
