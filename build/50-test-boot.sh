@@ -22,7 +22,9 @@ pkill -f "[q]emu-system-x86" 2>/dev/null; sleep 1
 cp --sparse=always "$SRC" out/lumina-lite.img && truncate -s 16G out/lumina-lite.img
 L=$(sudo losetup -fP --show out/lumina-lite.img)
 sudo mount "${L}p1" "$S/esp"
-X="console=ttyS0,115200 console=tty0 loglevel=6 printk.devkmsg=on systemd.journald.forward_to_kmsg=1"
+# max_level_kmsg=info : sans lui, journald ne recopie sur la console que les
+# erreurs, et jamais les messages de reussite que ce test attend.
+X="console=ttyS0,115200 console=tty0 loglevel=6 printk.devkmsg=on systemd.journald.forward_to_kmsg=1 systemd.journald.max_level_kmsg=info"
 sudo sed -i "/^options/s|\$| $X|" "$S"/esp/loader/entries/*.conf
 sudo sed -i "s|\\\$extra; then|\$extra $X; then|" "$S/esp/grub/grub.cfg"
 sudo umount "$S/esp"; sudo losetup -d "$L"
@@ -30,17 +32,32 @@ sudo umount "$S/esp"; sudo losetup -d "$L"
 T0=$(date +%s)
 LIVE_USB=1 HEADLESS=1 build/30-qemu.sh > "$S/qemu.log" 2>&1 &
 for _ in $(seq 30); do [ -f out/serial.log ] && break; sleep 1; done
-RES=1; WHY="pas de fin de demarrage en ${TIMEOUT} s"
+# Reussite = demarrage VALIDE par lumina-boot-ok (bureau affiche et vivant).
+# Preuve lue sur le disque, et non sur la console (qui cesse d'etre
+# alimentee une fois l'ecran de connexion lance) : en validant, le service
+# reecrit la ligne d'options de l'entree de demarrage et n'y garde, de nos
+# ajouts, que les console=. Apres l'ecran de connexion, on lui laisse
+# AFTER secondes (son attente du bureau va jusqu'a 3 min + 20 s).
+AFTER=${AFTER:-420}
+RES=1; WHY="ecran de connexion jamais lance en ${TIMEOUT} s"
 while [ $(( $(date +%s) - T0 )) -lt "$TIMEOUT" ]; do
-  if grep -aq "Startup finished" out/serial.log 2>/dev/null; then RES=0; WHY=""; break; fi
+  if grep -aq "Starting greetd.service" out/serial.log 2>/dev/null; then RES=0; WHY=""; break; fi
   sleep 3
 done
-sleep 20   # la session graphique arrive apres "Startup finished"
+[ "$RES" = 0 ] && sleep "$AFTER"
 build/screenshot.sh "$S/ecran.png" >/dev/null 2>&1
 LOG=$(sed 's/\x1b\[[0-9;]*m//g' out/serial.log)
 FAILED=$(printf '%s\n' "$LOG" | grep -aE "\[FAILED\]|Failed with result" | sort -u)
+pkill -f "[q]emu-system-x86" 2>/dev/null; sleep 2
+if [ "$RES" = 0 ]; then
+  L=$(sudo losetup -rfP --show out/lumina-lite.img)
+  sudo mount -o ro "${L}p1" "$S/esp"
+  if sudo grep -qs "^options.*printk.devkmsg" "$S"/esp/loader/entries/lumina-a*.conf; then
+    RES=1; WHY="demarrage jamais valide (bureau absent ? voir la capture)"
+  fi
+  sudo umount "$S/esp"; sudo losetup -d "$L"
+fi
 [ -n "$FAILED" ] && { RES=1; WHY="service(s) en echec"; }
-printf '%s\n' "$LOG" | grep -aq "Started greetd.service" || { RES=1; WHY="${WHY:-ecran de connexion/session absent}"; }
 
 echo "== Premier demarrage de $SRC"
 printf '%s\n' "$LOG" | grep -aE "Startup finished" | tail -1

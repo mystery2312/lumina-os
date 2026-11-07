@@ -7,8 +7,11 @@
 # vers un PC BIOS demarre ainsi sur la bonne version.
 set -euo pipefail
 export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+# Bureau ou ecran de connexion affiche (un labwc tourne sous greetd).
+# Un vieux PC lent peut mettre plus d'une minute a l'afficher : on l'attend
+# jusqu'a 3 min, puis il doit etre toujours vivant 20 s plus tard.
+for _ in $(seq 90); do pgrep -x labwc >/dev/null && break; sleep 2; done
 sleep 20
-# Bureau ou ecran de connexion affiche (un labwc tourne sous greetd)
 systemctl is-active --quiet greetd
 pgrep -x labwc >/dev/null
 ROOTSRC=$(findmnt -no SOURCE /)
