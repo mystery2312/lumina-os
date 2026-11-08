@@ -1190,12 +1190,7 @@ static void on_drag_begin(GtkWidget *w, GdkDragContext *ctx, gpointer d) {
     gtk_flow_box_unselect_all(GTK_FLOW_BOX(flow));
     gtk_flow_box_select_child(GTK_FLOW_BOX(flow), c);
   }
-  Entry *e = g_object_get_data(G_OBJECT(c), "entry");
-  if (e) {
-    GtkIconTheme *th = gtk_icon_theme_get_default();
-    gtk_drag_set_icon_name(ctx, e->type == G_FILE_TYPE_DIRECTORY ? "folder" : "text-x-generic", 0, 0);
-    (void)th;
-  }
+  lumina_ui_drag_ghost(w, ctx, NULL);
 }
 static void on_drag_get(GtkWidget *w, GdkDragContext *ctx, GtkSelectionData *sd, guint info, guint t, gpointer d) {
   GList *sel = selected_entries();
@@ -1345,6 +1340,22 @@ static void archive_done(GObject *o, GAsyncResult *r, gpointer msg) {
   g_object_unref(o); g_free(msg);
   load_dir();
 }
+/* Clic droit : Lumi lit ce fichier (lumina-index sait quels formats il lit) */
+static gboolean lumi_can_read(Entry *e) {
+  if (e->type == G_FILE_TYPE_DIRECTORY || !e->ctype) return FALSE;
+  return g_str_has_prefix(e->ctype, "text/") || !strcmp(e->ctype, "application/pdf")
+      || strstr(e->ctype, "opendocument") || strstr(e->ctype, "officedocument");
+}
+static void a_ask_lumi(void) {
+  GList *sel = selected_entries();
+  if (sel) {
+    char *path = g_file_get_path(((Entry *)sel->data)->file);
+    const char *argv[] = {"lumina-lumi", "--file", path, NULL};
+    if (path) g_spawn_async(NULL, (char **)argv, NULL, G_SPAWN_SEARCH_PATH, NULL, NULL, NULL, NULL);
+    g_free(path);
+  }
+  g_list_free(sel);
+}
 static void a_extract(void) {
   GList *sel = selected_entries();
   if (sel) {
@@ -1423,6 +1434,7 @@ static void show_menu(GdkEvent *ev) {
           g_list_free_full(apps, g_object_unref);
         }
       }
+      if (e && lumi_can_read(e)) menu_add("Demander à Lumi", a_ask_lumi, FALSE);
       if (e && is_archive(e)) menu_add("Extraire ici", a_extract, FALSE);
       g_list_free(one);
     }

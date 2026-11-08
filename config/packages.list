@@ -160,5 +160,14 @@ nftables
 # Lumi (IA locale, llama.cpp) : OpenMP, TLS
 libgomp1
 libssl3t64
+# Retrouver un fichier par son contenu (lumina-index) : index SQLite, PDF
+libsqlite3-0
+poppler-utils
+# Voix de Lumi : pw-record / pw-play (moteurs dans /usr/lib/lumina-ai)
+pipewire-bin
+# Lumi lit l'ecran (Windows + S) : reconnaissance de caracteres
+tesseract-ocr
+tesseract-ocr-fra
+tesseract-ocr-eng
 # Traductions de GLib (unites ko/Mo/Go en francais)
 libglib2.0-data

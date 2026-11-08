@@ -362,6 +362,9 @@ static const Glyph GLYPHS[] = {
   {"user",    "<circle cx='12' cy='8.5' r='4'/><path d='M4.5 20.5a7.5 7.5 0 0 1 15 0'/>"},
   {"monitor", "<rect x='2.5' y='4' width='19' height='13' rx='2.5'/><path d='M8 20.5h8M12 17v3.5'/>"},
   /* Lumi : etincelles */
+  {"grid4", "<rect x='4' y='4' width='7' height='7' rx='1.5'/><rect x='13' y='4' width='7' height='7' rx='1.5'/><rect x='4' y='13' width='7' height='7' rx='1.5'/><rect x='13' y='13' width='7' height='7' rx='1.5'/>"},
+  {"mic", "<rect x='9' y='3' width='6' height='11.5' rx='3'/><path d='M5.5 11.5a6.5 6.5 0 0 0 13 0M12 18v3'/>"},
+  {"scanscreen", "<path d='M4 8V5.5A1.5 1.5 0 0 1 5.5 4H8M16 4h2.5A1.5 1.5 0 0 1 20 5.5V8M20 16v2.5a1.5 1.5 0 0 1-1.5 1.5H16M8 20H5.5A1.5 1.5 0 0 1 4 18.5V16M8.5 10h7M8.5 14h5'/>"},
   {"sparkle", "<path d='M10.5 3.5c.7 4.4 2.6 6.3 7 7-4.4.7-6.3 2.6-7 7-.7-4.4-2.6-6.3-7-7 4.4-.7 6.3-2.6 7-7z'/><path d='M18.5 14.5c.3 1.9 1.1 2.7 3 3-1.9.3-2.7 1.1-3 3-.3-1.9-1.1-2.7-3-3 1.9-.3 2.7-1.1 3-3z'/>"},
   {"send",    "<path d='M21 3 3 10.5l7.2 2.8L13 21z'/><path d='M21 3 10.2 13.3'/>"},
   {"stop",    "<rect x='6.5' y='6.5' width='11' height='11' rx='2'/>"},
@@ -445,6 +448,7 @@ static void apply_css(void) {
   DEF("pri", P->pri); DEF("on_pri", P->on_pri); DEF("pri_c", P->pri_c); DEF("on_pri_c", P->on_pri_c);
   DEF("sec_c", P->sec_c); DEF("on_sec_c", P->on_sec_c); DEF("ter", P->ter); DEF("ter_c", P->ter_c);
   DEF("on_ter_c", P->on_ter_c); DEF("bar_solid", P->bar_solid);
+  DEF("err", dark ? "#ffb4ab" : "#ba1a1a");
 #undef DEF
   /* Fluidite : survols et changements d'etat en douceur partout */
   g_string_append(s, "button, row, flowboxchild, entry, switch, .tile, .slot, .card {\n"
@@ -512,6 +516,28 @@ void lumina_ui_init(const char *css_text, void (*on_theme)(void)) {
 
 /* Appli toujours sombre (Galerie), sans toucher au reglage du systeme */
 void lumina_ui_set_dark_local(gboolean on) { apply_theme(on); }
+
+/* Copie du widget, reduite si elle est grande (photo de la Galerie),
+   legerement transparente et tenue par son milieu. */
+void lumina_ui_drag_ghost(GtkWidget *w, GdkDragContext *c, gpointer d) {
+  int width = gtk_widget_get_allocated_width(w), height = gtk_widget_get_allocated_height(w);
+  int sf = gtk_widget_get_scale_factor(w);
+  if (width < 1 || height < 1) return;
+  double f = MIN(1.0, 200.0 / MAX(width, height));
+  int gw = MAX(1, (int)(width * f)), gh = MAX(1, (int)(height * f));
+  cairo_surface_t *s = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, gw * sf, gh * sf);
+  cairo_surface_set_device_scale(s, sf, sf);
+  cairo_t *cr = cairo_create(s);
+  cairo_scale(cr, f, f);
+  cairo_push_group(cr);
+  gtk_widget_draw(w, cr);
+  cairo_pop_group_to_source(cr);
+  cairo_paint_with_alpha(cr, 0.85);
+  cairo_destroy(cr);
+  cairo_surface_set_device_offset(s, -gw * sf / 2.0, -gh * sf / 2.0);
+  gtk_drag_set_icon_surface(c, s);
+  cairo_surface_destroy(s);
+}
 
 void lumina_ui_rerender(void) { for (guint i = 0; i < icons->len; i++) icon_render(icons->pdata[i]); }
 

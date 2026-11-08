@@ -34,6 +34,9 @@ lumina-display-follow &
 ( sleep 20; ionice -c3 nice -n19 find /usr/lib/chromium -type f -size +512k -exec cat {} + >/dev/null 2>&1 ) &
 # Gestes du pave tactile (3 doigts : vue d'ensemble ; 4 doigts : bureaux)
 lumina-gestures &
+# Contenu des fichiers (recherche, Lumi), en priorite minimale. Pas pour
+# l'invite : son dossier disparait a la sortie.
+[ "$(id -un)" = invite ] || lumina-index watch &
 # Icones officielles des applis web (Gmail, Drive...), une fois en ligne.
 lumina-fetch-icons &
 

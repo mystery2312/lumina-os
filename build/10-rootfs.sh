@@ -30,6 +30,7 @@ tar --owner=0 --group=0 --numeric-owner --mode=go-w --transform 's|^|usr/local/b
     -C out/bin -rf out/overlay.tar $(grep -v '^#' build/apps.list)
 # Moteur d'IA locale (build/06-ai.sh) : /usr/lib/lumina-ai
 [ -x out/ai/usr/lib/lumina-ai/llama-server ] || { echo "out/ai absent : lance build/06-ai.sh"; exit 1; }
+[ -x out/ai/usr/lib/lumina-ai/whisper/whisper-cli ] || echo ">> sans moteurs de voix (build/07-voice.sh) : la voix de Lumi sera absente de l'image"
 tar --owner=0 --group=0 --numeric-owner --mode=go-w -C out/ai -rf out/overlay.tar usr
 if [ "$BUILD_MODE" = "root" ]; then
   SUDO="sudo"; MM_MODE="root"; MM_FORMAT="directory"; TARGET="$ROOTFS_DIR"

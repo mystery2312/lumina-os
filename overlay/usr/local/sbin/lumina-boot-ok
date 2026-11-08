@@ -33,6 +33,13 @@ for f in "$M"/loader/entries/lumina-$SLOT.conf "$M"/loader/entries/lumina-$SLOT+
   grep -qxF "options  ${OPTS% }" "$f" && continue
   sed "s|^options .*|options  ${OPTS% }|" "$f" > "$f.tmp" && mv "$f.tmp" "$f" || rm -f "$f.tmp"
 done
+# A cote de Windows, nos entrees sont sur la partition XBOOTLDR, que
+# systemd-bless-boot ne trouve pas : on valide ici (compteur retire du nom).
+if [ ! -d "$M/EFI" ]; then
+  for f in "$M"/loader/entries/lumina-$SLOT+*.conf; do
+    [ -f "$f" ] && mv -f "$f" "$M/loader/entries/lumina-$SLOT.conf"
+  done
+fi
 [ -d "$M/grub" ] && ! cmp -s /usr/share/lumina/grub.cfg "$M/grub/grub.cfg" \
   && cp /usr/share/lumina/grub.cfg "$M/grub/grub.cfg"
 if [ -f "$M/grub/grubenv" ]; then

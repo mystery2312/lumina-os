@@ -709,7 +709,7 @@ static void on_app_drag_get(GtkWidget *w, GdkDragContext *c, GtkSelectionData *s
 }
 /* Pendant le glisser, le voile plein ecran (qui ferme le lanceur au clic
    exterieur) couvrirait l'etagere et recevrait le depot : on le retire. */
-static void on_app_drag_begin(GtkWidget *w, GdkDragContext *c, gpointer d) { gtk_widget_hide(scrim); }
+static void on_app_drag_begin(GtkWidget *w, GdkDragContext *c, gpointer d) { lumina_ui_drag_ghost(w, c, NULL); gtk_widget_hide(scrim); }
 static void on_app_drag_end(GtkWidget *w, GdkDragContext *c, gpointer d) { close_panels(); }
 static GtkWidget *drawer_app_button(GDesktopAppInfo *a) {
     GtkWidget *btn = gtk_button_new();
@@ -1089,6 +1089,28 @@ static void refresh_wallpaper(void) {
   update_bar_light();
 }
 
+/* Barres de titre dessinees par labwc (Terminal, applis Linux) : memes
+   couleurs que les applis LuminaOS, en mode clair comme en sombre. */
+static void sync_labwc_theme(void) {
+  char *dir = g_build_filename(g_get_user_config_dir(), "labwc", NULL);
+  char *f = g_build_filename(dir, "themerc-override", NULL), *old = NULL;
+  char *t = g_strdup_printf("# Ecrit par lumina-shell : suit le mode clair ou sombre\n"
+                            "window.active.title.bg.color: %1$s\nwindow.inactive.title.bg.color: %1$s\n"
+                            "window.active.border.color: %1$s\nwindow.inactive.border.color: %1$s\n"
+                            "window.active.label.text.color: %2$s\nwindow.inactive.label.text.color: %3$s\n"
+                            "menu.items.bg.color: %4$s\nmenu.items.text.color: %2$s\n"
+                            "osd.bg.color: %4$s\nosd.border.color: %4$s\nosd.label.text.color: %2$s\n",
+                            P->surface, P->on, P->on_var, P->c);
+  g_file_get_contents(f, &old, NULL, NULL);
+  if (g_strcmp0(old, t)) {   /* appele aussi pour un simple changement de fond */
+    g_mkdir_with_parents(dir, 0755);
+    g_file_set_contents(f, t, -1, NULL);
+    const char *argv[] = {"labwc", "--reconfigure", NULL};
+    spawn_async(argv);
+  }
+  g_free(dir); g_free(f); g_free(old); g_free(t);
+}
+
 static void on_theme_changed(void) {
   refresh_wallpaper();
   if (walls) for (guint i = 0; i < walls->len; i++) gtk_widget_queue_draw(g_ptr_array_index(walls, i));
@@ -1104,6 +1126,7 @@ static void on_theme_changed(void) {
                                                 portal_value("org.freedesktop.appearance", "accent-color")), NULL);
   const char *argv[] = {"makoctl", "mode", dark ? "-a" : "-r", "dark", NULL};
   spawn_async(argv);
+  sync_labwc_theme();
 }
 
 static void on_dark_tile(GtkButton *b, gpointer d) { lumina_ui_set_dark(!dark); }
@@ -1276,7 +1299,29 @@ static void refresh_qs(void) {
   refresh_mem();
 }
 
+/* A cote de Windows : le firmware le lance une seule fois, directement. */
+static gboolean windows_present(void) {
+  char *o = NULL;
+  const char *argv[] = {"efibootmgr", NULL};
+  gboolean r = g_spawn_sync(NULL, (char **)argv, NULL, G_SPAWN_SEARCH_PATH | G_SPAWN_STDERR_TO_DEV_NULL,
+                            NULL, NULL, &o, NULL, NULL, NULL) && o && strstr(o, "Windows Boot Manager");
+  g_free(o);
+  return r;
+}
+
+static void windows_boot_done(GObject *o, GAsyncResult *res, gpointer d) {
+  g_subprocess_wait_finish(G_SUBPROCESS(o), res, NULL);
+  g_object_unref(o);
+}
+
 static void on_power(GtkButton *b, gpointer d) {
+  if (!strcmp(d, "windows")) {
+    close_panels();
+    /* Pas spawn_async : pkexec exige que son parent reste vivant */
+    GSubprocess *p = g_subprocess_new(G_SUBPROCESS_FLAGS_NONE, NULL, "pkexec", "/usr/local/sbin/lumina-boot-windows", NULL);
+    if (p) g_subprocess_wait_async(p, NULL, windows_boot_done, NULL);
+    return;
+  }
   if (!strcmp(d, "lock")) {
     close_panels();
     /* Sans mot de passe, lumina-lock ne fait rien : on le dit */
@@ -2050,7 +2095,7 @@ static void build_qs(void) {
 
   GtkWidget *v = gtk_box_new(GTK_ORIENTATION_VERTICAL, 12);
   add_class(v, "panel"); add_class(v, "attached");
-  gtk_widget_set_size_request(v, 380, -1);
+  gtk_widget_set_size_request(v, 720, -1);   /* deux colonnes : pas de defilement en 1366 x 768 */
 
   GtkWidget *head = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 10);
   qs_time = label("", "qs-time", 0); qs_date = label("", "qs-date", 1);
@@ -2067,13 +2112,21 @@ static void build_qs(void) {
   gtk_container_add(GTK_CONTAINER(head), gear);
   gtk_container_add(GTK_CONTAINER(v), head);
 
+  /* A gauche les tuiles, a droite notifications, curseurs et systeme */
+  GtkWidget *cols = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 16);
+  gtk_box_set_homogeneous(GTK_BOX(cols), TRUE);
+  GtkWidget *left = gtk_box_new(GTK_ORIENTATION_VERTICAL, 12), *right = gtk_box_new(GTK_ORIENTATION_VERTICAL, 12);
+  gtk_container_add(GTK_CONTAINER(cols), left);
+  gtk_container_add(GTK_CONTAINER(cols), right);
+  gtk_container_add(GTK_CONTAINER(v), cols);
+
   /* Wi-Fi : tuile pleine largeur, la liste des reseaux se deplie dessous. */
   if (wifi_dev) {
     wifi_tile = tile("wifi", "Wi-Fi", &wifi_sub, &wifi_ic);
     gtk_container_add(GTK_CONTAINER(gtk_bin_get_child(GTK_BIN(wifi_tile))), icon_new("chev", R_ON_VAR, 16)->img);
     gtk_widget_set_hexpand(gtk_widget_get_parent(wifi_sub), TRUE);
     g_signal_connect(wifi_tile, "clicked", G_CALLBACK(on_wifi_tile), NULL);
-    gtk_container_add(GTK_CONTAINER(v), wifi_tile);
+    gtk_container_add(GTK_CONTAINER(left), wifi_tile);
 
     nets_rev = gtk_revealer_new();
     GtkWidget *nv = gtk_box_new(GTK_ORIENTATION_VERTICAL, 2);
@@ -2086,7 +2139,7 @@ static void build_qs(void) {
     g_signal_connect(wifi_power_btn, "clicked", G_CALLBACK(on_wifi_power), NULL);
     gtk_container_add(GTK_CONTAINER(nv), wifi_power_btn);
     gtk_container_add(GTK_CONTAINER(nets_rev), nv);
-    gtk_container_add(GTK_CONTAINER(v), nets_rev);
+    gtk_container_add(GTK_CONTAINER(left), nets_rev);
   }
 
   GtkWidget *grid = gtk_grid_new();
@@ -2098,8 +2151,8 @@ static void build_qs(void) {
   g_signal_connect(android_tile, "clicked", G_CALLBACK(on_android_tile), NULL);
   gtk_grid_attach(GTK_GRID(grid), dark_tile, 0, 0, 1, 1);
   gtk_grid_attach(GTK_GRID(grid), android_tile, 1, 0, 1, 1);
-  gtk_container_add(GTK_CONTAINER(v), grid);
-  extras_qs(v, grid);
+  gtk_container_add(GTK_CONTAINER(left), grid);
+  extras_qs(right, grid);
 
   bright_row = slider_row("sun", &bright_scale, G_CALLBACK(on_bright));
   vol_row = slider_row("vol", &vol_scale, G_CALLBACK(on_vol));
@@ -2108,8 +2161,8 @@ static void build_qs(void) {
   gtk_widget_show_all(bright_row); gtk_widget_show_all(vol_row);
   gtk_widget_set_no_show_all(bright_row, TRUE);
   gtk_widget_set_no_show_all(vol_row, TRUE);
-  gtk_container_add(GTK_CONTAINER(v), bright_row);
-  gtk_container_add(GTK_CONTAINER(v), vol_row);
+  gtk_container_add(GTK_CONTAINER(right), bright_row);
+  gtk_container_add(GTK_CONTAINER(right), vol_row);
 
   GtkWidget *mem = gtk_box_new(GTK_ORIENTATION_VERTICAL, 10);
   add_class(mem, "mem");
@@ -2136,7 +2189,7 @@ static void build_qs(void) {
   gtk_container_add(GTK_CONTAINER(lg), l1);
   gtk_container_add(GTK_CONTAINER(lg), l2);
   gtk_container_add(GTK_CONTAINER(mem), lg);
-  gtk_container_add(GTK_CONTAINER(v), mem);
+  gtk_container_add(GTK_CONTAINER(right), mem);
 
   upd_row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 10);
   add_class(upd_row, "upd");
@@ -2149,7 +2202,7 @@ static void build_qs(void) {
   gtk_container_add(GTK_CONTAINER(upd_row), upd_btn);
   gtk_widget_show_all(upd_row);
   gtk_widget_set_no_show_all(upd_btn, TRUE);
-  gtk_container_add(GTK_CONTAINER(v), upd_row);
+  gtk_container_add(GTK_CONTAINER(right), upd_row);
 
   GtkWidget *pw = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
   gtk_box_set_homogeneous(GTK_BOX(pw), TRUE);
@@ -2165,7 +2218,15 @@ static void build_qs(void) {
     g_signal_connect(b, "clicked", G_CALLBACK(on_power), (gpointer)acts[i][2]);
     gtk_container_add(GTK_CONTAINER(pw), b);
   }
-  gtk_container_add(GTK_CONTAINER(v), pw);
+  if (windows_present()) {
+    GtkWidget *wb = gtk_button_new();
+    add_class(wb, "pwr");
+    gtk_widget_set_tooltip_text(wb, "Redémarrer sous Windows");
+    gtk_container_add(GTK_CONTAINER(wb), icon_new("grid4", R_ON, 20)->img);
+    g_signal_connect(wb, "clicked", G_CALLBACK(on_power), (gpointer)"windows");
+    gtk_container_add(GTK_CONTAINER(pw), wb);
+  }
+  gtk_container_add(GTK_CONTAINER(right), pw);
 
   /* Petits ecrans (1366 x 768...) : le volet ne depasse jamais l'ecran,
      son contenu defile. Hauteur maxi recalculee a chaque ouverture. */
@@ -2214,6 +2275,7 @@ int main(int argc, char **argv) {
   }
   gtk_init(&argc, &argv);
   lumina_ui_init(BASE_CSS, on_theme_changed);
+  sync_labwc_theme();   /* mode sombre deja choisi avant cette version */
   refresh_wallpaper();
   init_portal();
 

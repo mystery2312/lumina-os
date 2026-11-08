@@ -493,6 +493,7 @@ int main(int argc, char **argv) {
   gtk_drag_dest_set(win, GTK_DEST_DEFAULT_ALL, URI_T, 1, GDK_ACTION_COPY);
   g_signal_connect(win, "drag-data-received", G_CALLBACK(on_drop), NULL);
   gtk_drag_source_set(img_area, GDK_BUTTON1_MASK, URI_T, 1, GDK_ACTION_COPY);
+  g_signal_connect(img_area, "drag-begin", G_CALLBACK(lumina_ui_drag_ghost), NULL);
   g_signal_connect(img_area, "drag-data-get", G_CALLBACK(on_drag_get), NULL);
   gtk_widget_show_all(win);
 

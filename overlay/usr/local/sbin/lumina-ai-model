@@ -13,6 +13,7 @@
 set -euo pipefail
 export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 CAT=/usr/share/lumina/ai-models.conf
+VOICE=/usr/share/lumina/ai-voice.conf
 D=/var/lib/lumina/ai
 
 entry() {   # entry <id> -> ligne du catalogue
@@ -50,5 +51,35 @@ case "${1:-}" in
     rm -f "$D/$id.gguf" "$D/$id.gguf.part"
     pkill -f "lumina-ai/llama-server.*$id.gguf" 2>/dev/null || true
     ;;
-  *) echo "Usage : lumina-ai-model install|remove <id> | list" >&2; exit 2 ;;
+  # Voix de Lumi : un paquet de trois fichiers, installe en entier ou pas du tout.
+  voice-status)
+    if [ -f "$D/voice/.ready" ]; then echo installe
+    elif compgen -G "$D/voice/*.part" >/dev/null; then
+      echo "telechargement|$(du -cb "$D"/voice/* 2>/dev/null | tail -1 | cut -f1)"
+    else echo absent; fi
+    ;;
+  voice-install)
+    mountpoint -q /var/lib/lumina || { echo "Partition d'état absente." >&2; exit 1; }
+    mkdir -p "$D/voice"; chmod 755 "$D" "$D/voice"
+    total=$(grep -vE '^\s*(#|$)' "$VOICE" | awk -F'|' '{ s += $2 } END { print s }')
+    free=$(( $(df --output=avail -B1 "$D" | tail -1) ))
+    [ "$free" -gt $(( total + 200 * 1048576 )) ] || { echo "Pas assez d'espace libre." >&2; exit 3; }
+    exec 9>"$D/.lock"; flock -n 9 || { echo "Téléchargement déjà en cours." >&2; exit 4; }
+    while IFS='|' read -r file size sha url; do
+      case "$file" in ''|\#*) continue ;; esac
+      [ -f "$D/voice/$file" ] && continue
+      curl -fL --retry 3 --retry-delay 5 -C - -o "$D/voice/$file.part" "$url" 2>/dev/null \
+        || { echo "Téléchargement interrompu (réseau ?). Réessayez : il reprendra où il s'est arrêté." >&2; exit 5; }
+      if ! echo "$sha  $D/voice/$file.part" | sha256sum -c --status; then
+        rm -f "$D/voice/$file.part"
+        echo "Fichier reçu altéré : il a été supprimé." >&2; exit 6
+      fi
+      chmod 644 "$D/voice/$file.part"; mv "$D/voice/$file.part" "$D/voice/$file"
+    done < "$VOICE"
+    : > "$D/voice/.ready"; chmod 644 "$D/voice/.ready"
+    ;;
+  voice-remove)
+    rm -rf "$D/voice"
+    ;;
+  *) echo "Usage : lumina-ai-model install|remove <id> | list | voice-status | voice-install | voice-remove" >&2; exit 2 ;;
 esac

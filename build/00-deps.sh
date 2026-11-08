@@ -11,6 +11,8 @@ PKGS=(
   systemd-boot-efi    # le binaire EFI qu'on copie sur l'ESP
   qemu-system-x86 qemu-utils ovmf
   zstd xz-utils
+  libsqlite3-dev      # lumina-index
+  cmake g++           # whisper.cpp (voix de Lumi)
 )
 echo "Installation : ${PKGS[*]}"
 sudo apt-get update

@@ -170,6 +170,7 @@ static void fill_overview(void) {
     g_signal_connect(body, "clicked", G_CALLBACK(on_ov_card), t);
     /* Glisser la carte sur la vignette d'un bureau : la fenetre y va */
     gtk_drag_source_set(body, GDK_BUTTON1_MASK, WIN_TARGET, 1, GDK_ACTION_MOVE);
+    g_signal_connect(body, "drag-begin", G_CALLBACK(lumina_ui_drag_ghost), NULL);
     g_signal_connect(body, "drag-data-get", G_CALLBACK(on_win_drag_get), t);
     gtk_container_add(GTK_CONTAINER(card), body);
     gtk_flow_box_insert(GTK_FLOW_BOX(ov_flow), card, -1);
@@ -1141,7 +1142,8 @@ static void extras_bar_end(GtkWidget *h) {
 /* Lanceur : calculatrice et fichiers                                   */
 /* ------------------------------------------------------------------ */
 static GtkWidget *calc_btn, *calc_l, *files_box;
-static GSubprocess *find_sp;
+static GSubprocess *find_sp, *content_sp;
+static GtkWidget *content_box;
 static guint find_timer;
 
 /* Analyseur d'expressions : + - * / % ^, parentheses, virgule decimale. */
@@ -1266,6 +1268,67 @@ static void find_done(GObject *o, GAsyncResult *res, gpointer d) {
   if (n) gtk_widget_hide(flow_empty);
 }
 
+/* Resultats « dans le contenu » : chemin <TAB> extrait (mots trouves entre
+   \2 et \3, mis en gras). */
+static void content_done(GObject *o, GAsyncResult *res, gpointer d) {
+  char *out = NULL;
+  gboolean ok = g_subprocess_communicate_utf8_finish(G_SUBPROCESS(o), res, &out, NULL, NULL);
+  if (G_SUBPROCESS(o) != content_sp) { g_free(out); g_object_unref(o); return; }
+  g_clear_object(&content_sp);
+  GList *kids = gtk_container_get_children(GTK_CONTAINER(content_box));
+  for (GList *l = kids; l; l = l->next) gtk_widget_destroy(l->data);
+  g_list_free(kids);
+  int n = 0;
+  char **lines = ok && out ? g_strsplit(out, "\n", -1) : NULL;
+  for (char **l = lines; l && *l && n < 4; l++) {
+    char *tab = strchr(*l, '\t');
+    if (!tab) continue;
+    *tab = 0;
+    if (!n) gtk_container_add(GTK_CONTAINER(content_box), label("Dans le contenu de vos fichiers", "section", 0));
+    GtkWidget *b = gtk_button_new();
+    add_class(b, "fileres");
+    GtkWidget *h = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 10);
+    GtkWidget *ic = icon_new("docs", R_PRI, 18)->img;
+    gtk_widget_set_valign(ic, GTK_ALIGN_CENTER);
+    gtk_container_add(GTK_CONTAINER(h), ic);
+    GtkWidget *t = gtk_box_new(GTK_ORIENTATION_VERTICAL, 1);
+    char *base = g_path_get_basename(*l);
+    GtkWidget *nl = label(base, NULL, 0);
+    gtk_label_set_ellipsize(GTK_LABEL(nl), PANGO_ELLIPSIZE_MIDDLE);
+    gtk_container_add(GTK_CONTAINER(t), nl);
+    GString *m = g_string_new(NULL);
+    /* Echappement morceau par morceau : les marques ne passent pas par lui */
+    gboolean bold = FALSE;
+    for (char *seg = tab + 1;;) {
+      char *end = seg + strcspn(seg, "\2\3");
+      char *esc = g_markup_escape_text(seg, end - seg);
+      g_string_append(m, esc);
+      g_free(esc);
+      if (!*end) break;
+      g_string_append(m, *end == 2 ? "<b>" : "</b>");
+      bold = *end == 2;
+      seg = end + 1;
+    }
+    if (bold) g_string_append(m, "</b>");
+    GtkWidget *sn = label("", "kind", 0);
+    gtk_label_set_markup(GTK_LABEL(sn), m->str);
+    gtk_label_set_ellipsize(GTK_LABEL(sn), PANGO_ELLIPSIZE_END);
+    gtk_container_add(GTK_CONTAINER(t), sn);
+    g_string_free(m, TRUE);
+    gtk_widget_set_hexpand(t, TRUE);
+    gtk_container_add(GTK_CONTAINER(h), t);
+    gtk_container_add(GTK_CONTAINER(b), h);
+    g_signal_connect_data(b, "clicked", G_CALLBACK(on_file_open), g_strdup(*l), (GClosureNotify)(void (*)(void))g_free, 0);
+    gtk_container_add(GTK_CONTAINER(content_box), b);
+    g_free(base);
+    n++;
+  }
+  g_strfreev(lines);
+  g_free(out); g_object_unref(o);
+  gtk_widget_show_all(content_box);
+  if (n) gtk_widget_hide(flow_empty);
+}
+
 static gboolean find_start(gpointer d) {
   find_timer = 0;
   const char *q = gtk_entry_get_text(GTK_ENTRY(search_entry));
@@ -1278,6 +1341,12 @@ static gboolean find_start(gpointer d) {
                              "sh", pat, NULL);
   if (find_sp) g_subprocess_communicate_utf8_async(find_sp, NULL, NULL, find_done, g_object_ref(find_sp));
   g_free(pat);
+  if (content_sp) { g_subprocess_force_exit(content_sp); g_clear_object(&content_sp); }
+  if (g_utf8_strlen(q, -1) >= 3) {
+    content_sp = g_subprocess_new(G_SUBPROCESS_FLAGS_STDOUT_PIPE | G_SUBPROCESS_FLAGS_STDERR_SILENCE, NULL,
+                                  "lumina-index", "search", q, "4", NULL);
+    if (content_sp) g_subprocess_communicate_utf8_async(content_sp, NULL, NULL, content_done, g_object_ref(content_sp));
+  }
   return G_SOURCE_REMOVE;
 }
 
@@ -1322,6 +1391,9 @@ static void extras_search_changed(const char *q) {
   GList *kids = gtk_container_get_children(GTK_CONTAINER(files_box));
   for (GList *l = kids; l; l = l->next) gtk_widget_destroy(l->data);
   g_list_free(kids);
+  kids = gtk_container_get_children(GTK_CONTAINER(content_box));
+  for (GList *l = kids; l; l = l->next) gtk_widget_destroy(l->data);
+  g_list_free(kids);
   if (find_timer) g_source_remove(find_timer);
   find_timer = *q ? g_timeout_add(300, find_start, NULL) : 0;
 }
@@ -1357,6 +1429,8 @@ static void extras_drawer(GtkWidget *v) {
   gtk_container_add(GTK_CONTAINER(v), lumi_btn);
   files_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 2);
   gtk_container_add(GTK_CONTAINER(v), files_box);
+  content_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 2);
+  gtk_container_add(GTK_CONTAINER(v), content_box);
 }
 
 
@@ -1404,7 +1478,7 @@ static void on_tote_open(GtkButton *b, gpointer path) {
   if (uri) g_app_info_launch_default_for_uri(uri, NULL, NULL);
   g_free(uri);
 }
-static void on_tote_drag_begin(GtkWidget *w, GdkDragContext *c, gpointer d) { gtk_widget_hide(scrim); }
+static void on_tote_drag_begin(GtkWidget *w, GdkDragContext *c, gpointer d) { lumina_ui_drag_ghost(w, c, NULL); gtk_widget_hide(scrim); }
 static void on_tote_drag_end(GtkWidget *w, GdkDragContext *c, gpointer d) { close_panels(); }
 static void on_tote_drag_get(GtkWidget *w, GdkDragContext *c, GtkSelectionData *sd, guint info, guint t, gpointer path) {
   char *uris[] = {g_filename_to_uri(path, NULL, NULL), NULL};
@@ -1639,6 +1713,7 @@ static void on_shelf_drop(GtkWidget *w, GdkDragContext *c, gint x, gint y, GtkSe
 static void extras_shelf_button(GtkWidget *b, const char *key, gboolean has_app) {
   if (!has_app) return;
   gtk_drag_source_set(b, GDK_BUTTON1_MASK, SHELF_TARGET, 1, GDK_ACTION_MOVE);
+  g_signal_connect(b, "drag-begin", G_CALLBACK(lumina_ui_drag_ghost), NULL);
   g_signal_connect_data(b, "drag-data-get", G_CALLBACK(on_shelf_drag_get), g_strdup(key), (GClosureNotify)(void (*)(void))g_free, 0);
   gtk_drag_dest_set(b, GTK_DEST_DEFAULT_ALL, SHELF_TARGET, 1, GDK_ACTION_MOVE);
   g_signal_connect_data(b, "drag-data-received", G_CALLBACK(on_shelf_drop), g_strdup(key), (GClosureNotify)(void (*)(void))g_free, 0);

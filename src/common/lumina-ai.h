@@ -19,12 +19,13 @@ typedef struct {
 } LuminaAiConfig;
 
 LuminaAiConfig *lumina_ai_config_load(void);
-void lumina_ai_config_save(const LuminaAiConfig *c);
+gboolean lumina_ai_config_save(const LuminaAiConfig *c);
 void lumina_ai_config_free(LuminaAiConfig *c);
 char *lumina_ai_key_load(void);
-void lumina_ai_key_save(const char *key);
+gboolean lumina_ai_key_save(const char *key);
 
 /* Chemin du modele local installe (NULL s'il est absent). */
+char *lumina_ai_url_clean(const char *url);   /* base du service, sans /chat/completions */
 char *lumina_ai_model_path(const char *id);
 
 /* Pret a repondre ? Sinon *why recoit une explication en francais. */

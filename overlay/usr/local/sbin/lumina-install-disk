@@ -2,10 +2,19 @@
 # Installe LuminaOS sur un disque interne, depuis la cle USB de demarrage.
 # Lance par l'installateur graphique (lumina-install) via pkexec.
 #
-#   lumina-install-disk /dev/sda
+#   lumina-install-disk /dev/sda                 efface tout le disque
+#   lumina-install-disk --beside /dev/sda        a cote de Windows
+#   lumina-install-disk --check-beside /dev/sda  OK <octets> [BITLOCKER] | NO <raison>
 #
-# TOUT LE DISQUE CIBLE EST EFFACE. Il recoit la meme disposition que
-# l'image : ESP, ROOT-A, ROOT-B (cible des futures mises a jour), STATE.
+# SANS --beside, TOUT LE DISQUE CIBLE EST EFFACE. Il recoit la meme
+# disposition que l'image : ESP, ROOT-A, ROOT-B (mises a jour), STATE.
+#
+# AVEC --beside, Windows n'est pas touche : tout va dans l'espace libre (que
+# l'utilisateur a libere depuis Windows ; on ne redimensionne jamais NTFS).
+# La partition EFI de Windows (souvent 100 Mo) ne recoit que EFI/luminaos et
+# loader/loader.conf (quelques Mo). Noyaux et entrees vont sur NOTRE partition
+# de demarrage (type XBOOTLDR, que systemd-boot lit) ; elle porte l'etiquette
+# ESP, ce qui la fait trouver par lumina-update et lumina-boot-ok.
 # Les identifiants de partitions sont tires au hasard : avec des
 # identifiants fixes, un PC ou LuminaOS est installe et la cle branchee
 # verrait deux systemes identiques et pourrait demarrer sur la cle.
@@ -21,15 +30,76 @@ set -euo pipefail
 # pkexec reinitialise PATH sans /usr/local : on le fixe nous-memes.
 export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
+MODE=erase
+case "${1:-}" in
+  --beside) MODE=beside; shift ;;
+  --check-beside) MODE=check; shift ;;
+esac
 TARGET="${1:-}"
 ESP_MB=512
 ROOT_MB=4096
 MIN_BYTES=$((12 * 1024 * 1024 * 1024))
+BESIDE_MIN_MB=24576      # demarrage + 2 systemes + au moins 15 Go de donnees
+WIN_ESP_MIN_KB=16384
+ESP_GUID=c12a7328-f81f-11d2-ba4b-00a0c93ec93b
 
 say()  { echo "PROGRESS $1 $2"; }
 fail() { echo "ERROR $*"; exit 1; }
 
 [ "$(id -u)" = 0 ] || fail "L'installation doit être lancée en administrateur."
+
+# Peut-on s'installer a cote de Windows ? Ne modifie rien.
+# Remplit B_WHY (refus), sinon B_ESP, B_ESP_NR, B_S, B_E (espace libre, en
+# secteurs alignes sur 1 Mio), B_MB et B_BITLOCKER.
+beside_scan() {
+  B_WHY=; B_BITLOCKER=
+  [ -d /sys/firmware/efi/efivars ] || { B_WHY="Ce PC a démarré en mode BIOS."; return; }
+  lumina-is-live || { B_WHY="LuminaOS doit avoir démarré depuis une clé USB."; return; }
+  [ "$TARGET" != "$(lumina-is-live --disk)" ] || { B_WHY="C'est la clé de démarrage."; return; }
+  [ "$(lsblk -dno PTTYPE "$TARGET" | tr -d ' ')" = gpt ] || { B_WHY="Ce disque n'est pas au format GPT."; return; }
+  if lsblk -lno PARTLABEL "$TARGET" | grep -qxE 'ESP|ROOT-A|ROOT-B|STATE'; then
+    B_WHY="LuminaOS semble déjà installé sur ce disque."; return
+  fi
+  B_ESP=$(lsblk -lnpo NAME,PARTTYPE "$TARGET" | awk -v g="$ESP_GUID" 'tolower($2) == g { print $1; exit }')
+  [ -b "$B_ESP" ] || { B_WHY="Partition EFI introuvable sur ce disque."; return; }
+  B_ESP_NR=$(cat "/sys/class/block/${B_ESP#/dev/}/partition")
+  local m kb=0 win=
+  m=$(mktemp -d /run/lumina-check.XXXXXX)
+  if mount -o ro "$B_ESP" "$m" 2>/dev/null; then
+    [ -f "$m/EFI/Microsoft/Boot/bootmgfw.efi" ] && win=1
+    kb=$(df --output=avail -k "$m" | tail -1 | tr -d ' ')
+    umount "$m"
+  fi
+  rmdir "$m"
+  [ -n "$win" ] || { B_WHY="Windows n'a pas été trouvé sur ce disque."; return; }
+  [ "$kb" -ge "$WIN_ESP_MIN_KB" ] || { B_WHY="La partition EFI de Windows est pleine."; return; }
+  # BitLocker : lsblk, et la signature lue sur chaque partition (lsblk
+  # depend de l'analyse d'udev ; ici, se tromper couterait trop cher).
+  lsblk -lno FSTYPE "$TARGET" | grep -qx BitLocker && B_BITLOCKER=1
+  local p
+  for p in $(lsblk -lnpo NAME "$TARGET" | tail -n +2); do
+    dd if="$p" bs=11 count=1 status=none 2>/dev/null | tail -c 8 | grep -aq -- '-FVE-FS-' && B_BITLOCKER=1
+  done
+  local sec per first last
+  sec=$(cat "/sys/class/block/${TARGET#/dev/}/queue/logical_block_size")
+  per=$((1048576 / sec))
+  first=$(sgdisk -f "$TARGET" 2>/dev/null | tail -1)
+  last=$(sgdisk -E "$TARGET" 2>/dev/null | tail -1)
+  case "$first$last" in ''|*[!0-9]*) B_WHY="Espace libre illisible sur ce disque."; return ;; esac
+  B_S=$(( (first + per - 1) / per * per ))
+  B_E=$(( (last + 1) / per * per - 1 ))
+  B_MB=$(( (B_E - B_S + 1) / per ))
+  B_PER=$per
+  [ "$B_MB" -ge "$BESIDE_MIN_MB" ] || B_WHY="Espace libre insuffisant : réduisez la partition de Windows d'au moins 24 Go."
+}
+
+if [ "$MODE" = check ]; then
+  [ -b "$TARGET" ] || { echo "NO Disque introuvable."; exit 0; }
+  beside_scan
+  if [ -n "$B_WHY" ]; then echo "NO $B_WHY"
+  else echo "OK $((B_MB * 1048576))${B_BITLOCKER:+ BITLOCKER}"; fi
+  exit 0
+fi
 
 LOG=/run/lumina-install.log
 PIDF=/run/lumina-install.pid
@@ -50,7 +120,7 @@ lumina-is-live || fail "LuminaOS doit avoir démarré depuis une clé USB pour �
 
 M=$(mktemp -d /run/lumina-install.XXXXXX)
 cleanup() {
-  for d in "$M/esp" "$M/root"; do mountpoint -q "$d" 2>/dev/null && umount "$d"; done
+  for d in "$M/esp" "$M/root" "$M/winesp"; do mountpoint -q "$d" 2>/dev/null && umount "$d"; done
   rm -rf "$M"
   rm -f "$PIDF"
 }
@@ -58,13 +128,31 @@ trap cleanup EXIT
 
 # --- 1. Partitions -----------------------------------------------------------
 say 3 "Préparation du disque"
+uuid() { cat /proc/sys/kernel/random/uuid; }
+U_ESP=$(uuid); U_A=$(uuid); U_B=$(uuid); U_S=$(uuid)
+if [ "$MODE" = beside ]; then
+  beside_scan
+  [ -z "$B_WHY" ] || fail "$B_WHY"
+  # Seule ecriture avant le formatage de NOS partitions : la table, a
+  # laquelle on ajoute quatre lignes. Copie de securite dans le journal RAM.
+  sgdisk --backup=/run/lumina-gpt-avant-installation.bak "$TARGET" >/dev/null
+  echo WRITING
+  S1=$B_S; E1=$(( S1 + ESP_MB * B_PER - 1 ))
+  S2=$(( E1 + 1 )); E2=$(( S2 + ROOT_MB * B_PER - 1 ))
+  S3=$(( E2 + 1 )); E3=$(( S3 + ROOT_MB * B_PER - 1 ))
+  S4=$(( E3 + 1 )); E4=$B_E
+  sgdisk \
+    -n "0:$S1:$E1" -t 0:ea00 -c 0:ESP    -u "0:$U_ESP" \
+    -n "0:$S2:$E2" -t 0:8304 -c 0:ROOT-A -u "0:$U_A" \
+    -n "0:$S3:$E3" -t 0:8304 -c 0:ROOT-B -u "0:$U_B" \
+    -n "0:$S4:$E4" -t 0:8300 -c 0:STATE  -u "0:$U_S" \
+    "$TARGET" >/dev/null || fail "Création des partitions impossible. Windows n'a pas été modifié."
+else
 echo WRITING
 for p in $(lsblk -lnpo NAME "$TARGET" | tail -n +2); do umount "$p" 2>/dev/null || true; done
 wipefs -af "$TARGET" >/dev/null
 sgdisk -Z "$TARGET" >/dev/null 2>&1 || true
 
-uuid() { cat /proc/sys/kernel/random/uuid; }
-U_ESP=$(uuid); U_A=$(uuid); U_B=$(uuid); U_S=$(uuid)
 # Partition 5 "BIOS boot" (secteurs 34-2047, avant l'ESP) : GRUB pour les
 # PC sans UEFI. Creee en premier, sinon les suivantes prendraient sa place.
 sgdisk -a 1 \
@@ -74,7 +162,9 @@ sgdisk -a 1 \
   -n "3:0:+${ROOT_MB}M"  -t 3:8304 -c 3:ROOT-B -u "3:$U_B" \
   -n "4:0:0"             -t 4:8300 -c 4:STATE  -u "4:$U_S" \
   "$TARGET" >/dev/null
-blockdev --rereadpt "$TARGET" 2>/dev/null || true
+fi
+# Windows monte sur rien ici : la relecture passe. partx en secours.
+blockdev --rereadpt "$TARGET" 2>/dev/null || partx -u "$TARGET" 2>/dev/null || true
 udevadm settle
 
 part() { echo "/dev/disk/by-partuuid/$1"; }
@@ -116,14 +206,38 @@ date -u +%Y-%m-%dT%H:%M:%SZ > "$M/root/etc/lumina/installed"   # lu par lumina-i
 say 90 "Installation du démarrage"
 KVER=$(uname -r)
 VERSION=$(cat /etc/lumina/version)
-mkdir -p "$M/esp/EFI/BOOT" "$M/esp/EFI/luminaos" "$M/esp/loader/entries" "$M/esp/lumina-a"
+mkdir -p "$M/esp/loader/entries" "$M/esp/lumina-a"
+SHIM=/usr/lib/shim/shimx64.efi.signed
+SDB=/usr/lib/systemd/boot/efi/systemd-bootx64.efi.signed
+MOK=/usr/lib/shim/mmx64.efi.signed
+if [ "$MODE" = beside ]; then
+  # Secure Boot : shim charge systemd-boot pose a cote de lui. Sans
+  # EFI/BOOT : ce chemin de secours appartient a Windows.
+  mkdir -p "$M/winesp"
+  mount "$B_ESP" "$M/winesp"
+  D="$M/winesp/EFI/luminaos"
+  mkdir -p "$D" "$M/winesp/loader"
+  if [ -f "$SHIM" ] && [ -f "$SDB" ]; then
+    cp "$SDB" "$D/grubx64.efi"
+    [ -f "$MOK" ] && cp "$MOK" "$D/mmx64.efi"
+    cp "$SHIM" "$D/shimx64.efi"
+  else
+    cp /usr/lib/systemd/boot/efi/systemd-bootx64.efi "$D/shimx64.efi"
+  fi
+  # Menu au demarrage. Windows protege par BitLocker : lance par une autre
+  # chaine de demarrage, il demanderait sa cle de recuperation. On ne le
+  # propose donc pas ici : « Redemarrer sous Windows » passe par le firmware.
+  if [ -n "$B_BITLOCKER" ]; then
+    printf 'timeout 0\neditor no\nauto-entries no\n' > "$M/winesp/loader/loader.conf"
+  else
+    printf 'timeout 5\neditor no\nauto-firmware no\n' > "$M/winesp/loader/loader.conf"
+  fi
+else
+mkdir -p "$M/esp/EFI/BOOT" "$M/esp/EFI/luminaos"
 # Secure Boot : shim (signe Microsoft) charge grubx64.efi place a cote de
 # lui, ici systemd-boot signe par Debian. Deux exemplaires : EFI/luminaos
 # pour l'entree du firmware, EFI/BOOT (chemin de secours) si le firmware
 # oublie cette entree.
-SHIM=/usr/lib/shim/shimx64.efi.signed
-SDB=/usr/lib/systemd/boot/efi/systemd-bootx64.efi.signed
-MOK=/usr/lib/shim/mmx64.efi.signed
 for d in "$M/esp/EFI/BOOT" "$M/esp/EFI/luminaos"; do
   if [ -f "$SHIM" ] && [ -f "$SDB" ]; then
     cp "$SDB" "$d/grubx64.efi"
@@ -133,12 +247,13 @@ for d in "$M/esp/EFI/BOOT" "$M/esp/EFI/luminaos"; do
     cp /usr/lib/systemd/boot/efi/systemd-bootx64.efi "$d/$( [ "$d" = "$M/esp/EFI/BOOT" ] && echo BOOTX64.EFI || echo shimx64.efi )"
   fi
 done
+fi
 # Un noyau par emplacement : la mise a jour de B ne touche pas a A.
 cp "/boot/vmlinuz-$KVER" "$M/esp/lumina-a/vmlinuz"
 cp "/boot/initrd.img-$KVER" "$M/esp/lumina-a/initrd.img"
 # Pas de "default" : systemd-boot prend la plus haute version (voir
 # lumina-update). B est vide jusqu'a la premiere mise a jour.
-printf 'timeout 0\neditor no\n' > "$M/esp/loader/loader.conf"
+[ "$MODE" = beside ] || printf 'timeout 0\neditor no\n' > "$M/esp/loader/loader.conf"
 cat > "$M/esp/loader/entries/lumina-a.conf" <<EOF
 title    LuminaOS $VERSION
 sort-key luminaos
@@ -148,7 +263,7 @@ initrd   /lumina-a/initrd.img
 options  root=PARTUUID=$U_A $(cat /usr/share/lumina/cmdline)
 EOF
 # PC sans UEFI (ou disque deplace plus tard vers un tel PC) : GRUB.
-if [ -f /usr/lib/grub/i386-pc/boot.img ]; then
+if [ "$MODE" != beside ] && [ -f /usr/lib/grub/i386-pc/boot.img ]; then
   grub-install --target=i386-pc --boot-directory="$M/esp" --modules="part_gpt fat" "$TARGET" \
     || { [ -d /sys/firmware/efi ] || fail "Installation du démarrage BIOS impossible."; }
   cp /usr/share/lumina/grub.cfg "$M/esp/grub/grub.cfg"
@@ -157,8 +272,13 @@ if [ -f /usr/lib/grub/i386-pc/boot.img ]; then
 fi
 # Entree "LuminaOS" en tete de l'ordre de demarrage du firmware.
 if [ -d /sys/firmware/efi/efivars ]; then
-  efibootmgr -q -c -d "$TARGET" -p 1 -L "LuminaOS" -l '\EFI\luminaos\shimx64.efi' \
-    || echo "PROGRESS 95 Entrée de démarrage non enregistrée : le PC utilisera le chemin de secours"
+  if [ "$MODE" = beside ]; then
+    efibootmgr -q -c -d "$TARGET" -p "$B_ESP_NR" -L "LuminaOS" -l '\EFI\luminaos\shimx64.efi' \
+      || fail "Entrée de démarrage non enregistrée : le PC continuera de démarrer sur Windows."
+  else
+    efibootmgr -q -c -d "$TARGET" -p 1 -L "LuminaOS" -l '\EFI\luminaos\shimx64.efi' \
+      || echo "PROGRESS 95 Entrée de démarrage non enregistrée : le PC utilisera le chemin de secours"
+  fi
 fi
 
 say 98 "Finalisation"

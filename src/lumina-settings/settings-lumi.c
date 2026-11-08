@@ -145,31 +145,140 @@ static void on_ai_del(GtkButton *b, gpointer d) {
   if (s) g_subprocess_wait_async(s, NULL, on_ai_del_done, NULL);
 }
 
+/* Essai reel apres l'enregistrement : l'erreur du service s'affiche ici,
+   pas plus tard dans Lumi. */
+static void ai_test_piece(const char *piece, gpointer d) {}
+static void ai_test_done(const char *err, gpointer d) {
+  gtk_widget_set_sensitive(GTK_WIDGET(d), TRUE);
+  if (err) say(ai_msg, err, TRUE);
+  else say(ai_msg, "Connexion réussie : Lumi utilise ce service.", FALSE);
+}
+
 static void on_ai_remote_save(GtkButton *b, gpointer d) {
-  const char *url = gtk_entry_get_text(GTK_ENTRY(ai_url));
-  if (!g_str_has_prefix(url, "https://") && !g_str_has_prefix(url, "http://localhost") && !g_str_has_prefix(url, "http://127.0.0.1")) {
-    say(ai_msg, "L'adresse doit commencer par https:// (connexion chiffrée).", TRUE);
-    return;
-  }
-  LuminaAiConfig *c = lumina_ai_config_load();
-  g_free(c->remote_url); c->remote_url = g_strdup(url);
-  g_free(c->remote_model); c->remote_model = g_strdup(gtk_entry_get_text(GTK_ENTRY(ai_rmodel)));
-  c->mode = LUMINA_AI_REMOTE;
-  lumina_ai_config_save(c);
-  lumina_ai_config_free(c);
-  const char *k = gtk_entry_get_text(GTK_ENTRY(ai_key));
-  if (*k) lumina_ai_key_save(k);
-  gtk_entry_set_text(GTK_ENTRY(ai_key), "");
+  char *url = lumina_ai_url_clean(gtk_entry_get_text(GTK_ENTRY(ai_url)));
+  char *model = g_strstrip(g_strdup(gtk_entry_get_text(GTK_ENTRY(ai_rmodel))));
+  char *key = g_strstrip(g_strdup(gtk_entry_get_text(GTK_ENTRY(ai_key))));
   char *saved = lumina_ai_key_load();
-  gtk_entry_set_placeholder_text(GTK_ENTRY(ai_key), saved && *saved ? "Clé enregistrée (laisser vide pour la garder)" : "Clé d'accès");
-  g_free(saved);
-  say(ai_msg, "Service en ligne enregistré.", FALSE);
+  const char *problem = NULL;
+  if (!g_str_has_prefix(url, "https://") && !g_str_has_prefix(url, "http://localhost") && !g_str_has_prefix(url, "http://127.0.0.1"))
+    problem = "L'adresse doit commencer par https:// (connexion chiffrée).";
+  else if (!*model) problem = "Indiquez le nom du modèle.";
+  else if (!*key && !(saved && *saved)) problem = "Collez la clé d'accès donnée par le service.";
+  if (problem) say(ai_msg, problem, TRUE);
+  else {
+    LuminaAiConfig *c = lumina_ai_config_load();
+    g_free(c->remote_url); c->remote_url = g_strdup(url);
+    g_free(c->remote_model); c->remote_model = g_strdup(model);
+    c->mode = LUMINA_AI_REMOTE;
+    gboolean ok = lumina_ai_config_save(c) && (!*key || lumina_ai_key_save(key));
+    lumina_ai_config_free(c);
+    if (!ok) say(ai_msg, "Impossible d'enregistrer : l'espace disque est probablement plein. Libérez de la place, puis réessayez.", TRUE);
+    else {
+      gtk_entry_set_text(GTK_ENTRY(ai_url), url);
+      gtk_entry_set_text(GTK_ENTRY(ai_rmodel), model);
+      gtk_entry_set_text(GTK_ENTRY(ai_key), "");
+      gtk_entry_set_placeholder_text(GTK_ENTRY(ai_key), "Clé enregistrée (laisser vide pour la garder)");
+      say(ai_msg, "Essai de la connexion…", FALSE);
+      gtk_widget_set_sensitive(GTK_WIDGET(b), FALSE);
+      lumina_ai_ask("Réponds seulement : OK.", "Test", ai_test_piece, ai_test_done, b, NULL);
+    }
+  }
+  g_free(url); g_free(model); g_free(key); g_free(saved);
+}
+
+/* Titre au-dessus du champ : le texte d'exemple disparait a la saisie */
+static void ai_field(GtkWidget *parent, const char *title, GtkWidget *entry) {
+  GtkWidget *b = gtk_box_new(GTK_ORIENTATION_VERTICAL, 4);
+  gtk_container_add(GTK_CONTAINER(b), label(title, "s", 0));
+  gtk_container_add(GTK_CONTAINER(b), entry);
+  gtk_container_add(GTK_CONTAINER(parent), b);
+}
+
+/* Voix de Lumi : 3 fichiers (voir ai-voice.conf), comprise et parlee sur ce PC */
+#define AI_VOICE_BYTES 122913794ULL
+static GtkWidget *voice_sub, *voice_act, *voice_del;
+static gboolean voice_installing;
+
+static void voice_refresh(void) {
+  if (!voice_act) return;
+  const char *argv[] = {AI_MODEL_TOOL, "voice-status", NULL};
+  char *o = run_argv(argv, NULL);
+  gboolean inst = o && g_str_has_prefix(o, "installe");
+  gboolean partial = o && g_str_has_prefix(o, "telechargement");
+  gboolean enough = ai_mem_mb() >= 3500;
+  char *t;
+  if (partial) {
+    guint64 got = g_ascii_strtoull(strchr(o, '|') ? strchr(o, '|') + 1 : "0", NULL, 10);
+    int pc = (int)MIN(got * 100 / AI_VOICE_BYTES, 100);
+    t = voice_installing ? g_strdup_printf("Téléchargement… %d %%", pc) : g_strdup_printf("Téléchargement interrompu (%d %%) : reprenez-le", pc);
+  } else if (inst) t = g_strdup("Installée. Cliquez sur le micro dans Lumi : il vous répond à voix haute. Tout reste sur ce PC.");
+  else if (!enough) t = g_strdup("Demande au moins 4 Go de mémoire : ce PC n'en a pas assez.");
+  else t = g_strdup("Parlez à Lumi, il vous répond à voix haute. Tout reste sur ce PC. 117 Mo à télécharger.");
+  gtk_label_set_text(GTK_LABEL(voice_sub), t);
+  g_free(t);
+  gtk_button_set_label(GTK_BUTTON(voice_act), voice_installing ? "Téléchargement…" : partial ? "Reprendre" : "Télécharger");
+  gtk_widget_set_visible(voice_act, !inst);
+  gtk_widget_set_sensitive(voice_act, !voice_installing && enough);
+  gtk_widget_set_visible(voice_del, (inst || partial) && !voice_installing);
+  g_free(o);
+}
+
+static gboolean voice_tick(gpointer d) { voice_refresh(); return voice_installing; }
+
+static void on_voice_installed(GObject *o, GAsyncResult *res, gpointer d) {
+  char *err = NULL;
+  g_subprocess_communicate_utf8_finish(G_SUBPROCESS(o), res, NULL, &err, NULL);
+  int code = g_subprocess_get_if_exited(G_SUBPROCESS(o)) ? g_subprocess_get_exit_status(G_SUBPROCESS(o)) : -1;
+  g_object_unref(o);
+  voice_installing = FALSE;
+  if (code == 0) say(ai_msg, "La voix de Lumi est prête.", FALSE);
+  else if (code == 126 || code == 127) gtk_widget_hide(ai_msg);
+  else say(ai_msg, err && *g_strstrip(err) ? err : "Le téléchargement a échoué.", TRUE);
+  g_free(err);
+  voice_refresh();
+}
+
+static void on_voice_act(GtkButton *b, gpointer d) {
+  GSubprocess *s = g_subprocess_new(G_SUBPROCESS_FLAGS_STDERR_PIPE | G_SUBPROCESS_FLAGS_STDOUT_SILENCE, NULL,
+                                    "pkexec", AI_MODEL_TOOL, "voice-install", NULL);
+  if (!s) { say(ai_msg, "Impossible de lancer le téléchargement.", TRUE); return; }
+  voice_installing = TRUE;
+  gtk_widget_hide(ai_msg);
+  g_subprocess_communicate_utf8_async(s, NULL, NULL, on_voice_installed, NULL);
+  g_timeout_add_seconds(1, voice_tick, NULL);
+  voice_refresh();
+}
+
+static void on_voice_del_done(GObject *o, GAsyncResult *res, gpointer d) {
+  g_subprocess_wait_finish(G_SUBPROCESS(o), res, NULL);
+  g_object_unref(o);
+  voice_refresh();
+}
+
+static void on_voice_del(GtkButton *b, gpointer d) {
+  GSubprocess *s = g_subprocess_new(G_SUBPROCESS_FLAGS_NONE, NULL, "pkexec", AI_MODEL_TOOL, "voice-remove", NULL);
+  if (s) g_subprocess_wait_async(s, NULL, on_voice_del_done, NULL);
+}
+
+/* Retrouver un fichier par son contenu (lumina-index) */
+static void on_index_toggle(GObject *o, GParamSpec *ps, gpointer d) {
+  char *off = g_build_filename(g_get_user_config_dir(), "lumina", "index-off", NULL);
+  if (gtk_switch_get_active(GTK_SWITCH(o))) {
+    g_unlink(off);
+    const char *argv[] = {"lumina-index", "update", NULL};
+    g_spawn_async(NULL, (char **)argv, NULL, G_SPAWN_SEARCH_PATH, NULL, NULL, NULL, NULL);
+  } else {
+    g_file_set_contents(off, "", 0, NULL);
+    const char *argv[] = {"lumina-index", "clear", NULL};
+    g_spawn_async(NULL, (char **)argv, NULL, G_SPAWN_SEARCH_PATH, NULL, NULL, NULL, NULL);
+  }
+  g_free(off);
 }
 
 static void build_lumi(void) {
   GtkWidget *p = page_box("lumi", "Lumi");
-  gtk_container_add(GTK_CONTAINER(p), desc("Lumi répond à vos questions (Windows + Espace), aide à écrire dans toutes les applis (sélectionnez un texte puis Windows + E) "
-                                           "et résume les pages web (clic droit dans le navigateur). "
+  gtk_container_add(GTK_CONTAINER(p), desc("Lumi répond à vos questions (Windows + Espace), aide à écrire dans toutes les applis (sélectionnez un texte puis Windows + E), "
+                                           "lit ce qui est à l'écran (Windows + S), retrouve ce que disent vos fichiers et résume les pages web (clic droit dans le navigateur). "
                                            "Il peut se tromper : vérifiez les informations importantes."));
   GtkWidget *g = group(p, NULL);
   ai_mode = gtk_combo_box_text_new();
@@ -180,6 +289,29 @@ static void build_lumi(void) {
   gtk_combo_box_set_active(GTK_COMBO_BOX(ai_mode), c->mode == LUMINA_AI_LOCAL ? 1 : c->mode == LUMINA_AI_REMOTE ? 2 : 0);
   g_signal_connect(ai_mode, "changed", G_CALLBACK(on_ai_mode), NULL);
   row(g, "Fonctionnement", NULL, ai_mode, NULL);
+
+  GtkWidget *ig = group(p, NULL);
+  GtkWidget *isw = gtk_switch_new();
+  gtk_widget_set_valign(isw, GTK_ALIGN_CENTER);
+  char *ioff = g_build_filename(g_get_user_config_dir(), "lumina", "index-off", NULL);
+  gtk_switch_set_active(GTK_SWITCH(isw), !g_file_test(ioff, G_FILE_TEST_EXISTS));
+  g_free(ioff);
+  g_signal_connect(isw, "notify::active", G_CALLBACK(on_index_toggle), NULL);
+  row(ig, "Retrouver mes fichiers par leur contenu",
+      "Textes, PDF, Word et LibreOffice sont lus en tâche de fond, quand le PC ne fait rien. L'index reste sur ce PC.", isw, NULL);
+
+  if (g_file_test("/usr/lib/lumina-ai/whisper/whisper-cli", G_FILE_TEST_IS_EXECUTABLE)) {
+    GtkWidget *vend = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+    voice_del = button("Supprimer", "tbtn", G_CALLBACK(on_voice_del), NULL);
+    gtk_widget_set_no_show_all(voice_del, TRUE);
+    voice_act = button("Télécharger", "fbtn", G_CALLBACK(on_voice_act), NULL);
+    gtk_widget_set_no_show_all(voice_act, TRUE);
+    gtk_container_add(GTK_CONTAINER(vend), voice_del);
+    gtk_container_add(GTK_CONTAINER(vend), voice_act);
+    row(ig, "Voix de Lumi", "", vend, &voice_sub);
+    gtk_label_set_line_wrap(GTK_LABEL(voice_sub), TRUE);
+    voice_refresh();
+  }
 
   ai_msg = label("", "msg", 0);
   gtk_label_set_line_wrap(GTK_LABEL(ai_msg), TRUE);
@@ -231,17 +363,17 @@ static void build_lumi(void) {
                          "Vos messages lui sont alors envoyés : choisissez un service de confiance. La clé reste sur ce PC, "
                          "lisible par votre compte seulement."));
   GtkWidget *rg = gtk_box_new(GTK_ORIENTATION_VERTICAL, 10);
-  ai_url = field("Adresse, ex. https://api.exemple.com/v1", FALSE);
-  ai_rmodel = field("Nom du modèle", FALSE);
-  ai_key = field("Clé d'accès", TRUE);
+  ai_url = field("https://api.groq.com/openai/v1", FALSE);
+  ai_rmodel = field("llama-3.3-70b-versatile", FALSE);
+  ai_key = field("Collez la clé ici", TRUE);
   if (c->remote_url) gtk_entry_set_text(GTK_ENTRY(ai_url), c->remote_url);
   if (c->remote_model) gtk_entry_set_text(GTK_ENTRY(ai_rmodel), c->remote_model);
   char *saved = lumina_ai_key_load();
   if (saved && *saved) gtk_entry_set_placeholder_text(GTK_ENTRY(ai_key), "Clé enregistrée (laisser vide pour la garder)");
   g_free(saved);
-  gtk_container_add(GTK_CONTAINER(rg), ai_url);
-  gtk_container_add(GTK_CONTAINER(rg), ai_rmodel);
-  gtk_container_add(GTK_CONTAINER(rg), ai_key);
+  ai_field(rg, "Adresse du service", ai_url);
+  ai_field(rg, "Nom du modèle (voir la liste du service)", ai_rmodel);
+  ai_field(rg, "Clé d'accès", ai_key);
   GtkWidget *sv = button("Enregistrer", "fbtn", G_CALLBACK(on_ai_remote_save), NULL);
   gtk_widget_set_halign(sv, GTK_ALIGN_END);
   gtk_container_add(GTK_CONTAINER(rg), sv);

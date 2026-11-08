@@ -1,0 +1,9 @@
+#!/bin/bash
+# Redemarre une fois sous Windows, par le firmware (BootNext) : la chaine de
+# demarrage de Windows reste la sienne, BitLocker n'y voit aucune difference.
+set -euo pipefail
+export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+N=$(efibootmgr | sed -n 's/^Boot\([0-9A-Fa-f]\{4\}\)[* ] *Windows Boot Manager.*/\1/p' | head -1)
+[ -n "$N" ] || { echo "Windows n'a pas été trouvé sur ce PC." >&2; exit 1; }
+efibootmgr -q -n "$N"
+exec systemctl reboot

@@ -5,6 +5,7 @@
  * lumina-ai-serve ; en ligne vers l'adresse choisie, la cle etant lue par
  * curl dans un fichier prive (jamais sur la ligne de commande, visible de
  * tous dans ps). Les reponses sont lues en flux (Server-Sent Events). */
+#define _GNU_SOURCE   /* strcasestr */
 #include "lumina-ai.h"
 #include <string.h>
 #include <glib/gstdio.h>
@@ -50,7 +51,7 @@ LuminaAiConfig *lumina_ai_config_load(void) {
   return c;
 }
 
-void lumina_ai_config_save(const LuminaAiConfig *c) {
+gboolean lumina_ai_config_save(const LuminaAiConfig *c) {
   char *d = g_build_filename(g_get_user_config_dir(), "lumina", NULL);
   g_mkdir_with_parents(d, 0700);
   char *p = conf_path("ai.conf");
@@ -58,8 +59,9 @@ void lumina_ai_config_save(const LuminaAiConfig *c) {
                             c->mode == LUMINA_AI_LOCAL ? "local" : c->mode == LUMINA_AI_REMOTE ? "remote" : "off",
                             c->model ? c->model : "leger", c->remote_url ? c->remote_url : "",
                             c->remote_model ? c->remote_model : "");
-  g_file_set_contents(p, t, -1, NULL);
+  gboolean ok = g_file_set_contents(p, t, -1, NULL);
   g_free(t); g_free(p); g_free(d);
+  return ok;
 }
 
 void lumina_ai_config_free(LuminaAiConfig *c) {
@@ -75,16 +77,27 @@ char *lumina_ai_key_load(void) {
   return t;
 }
 
-void lumina_ai_key_save(const char *key) {
+gboolean lumina_ai_key_save(const char *key) {
   char *d = g_build_filename(g_get_user_config_dir(), "lumina", NULL);
   g_mkdir_with_parents(d, 0700);
   char *p = conf_path("ai.key");
+  gboolean ok = TRUE;
   if (!key || !*key) g_unlink(p);
-  else {
-    int fd = g_open(p, O_WRONLY | O_CREAT | O_TRUNC, 0600);
-    if (fd >= 0) { fchmod(fd, 0600); if (write(fd, key, strlen(key)) < 0) {} close(fd); }
-  }
+  /* Ecriture atomique : disque plein = echec signale, ancienne cle intacte */
+  else ok = g_file_set_contents_full(p, key, -1, G_FILE_SET_CONTENTS_CONSISTENT, 0600, NULL);
   g_free(p); g_free(d);
+  return ok;
+}
+
+/* Les services donnent souvent l'adresse complete : on garde la base. */
+char *lumina_ai_url_clean(const char *url) {
+  char *u = g_strstrip(g_strdup(url ? url : ""));
+  for (;;) {
+    gsize n = strlen(u);
+    if (n && u[n - 1] == '/') u[n - 1] = 0;
+    else if (g_str_has_suffix(u, "/chat/completions")) u[n - strlen("/chat/completions")] = 0;
+    else return u;
+  }
 }
 
 char *lumina_ai_model_path(const char *id) {
@@ -250,6 +263,11 @@ static void on_curl_exit(GObject *o, GAsyncResult *res, gpointer d) {
   char *err;
   if (msg && strstr(msg, "context size"))
     err = g_strdup("Ce texte est trop long pour Lumi. Sélectionnez un passage plus court, ou commencez une nouvelle conversation.");
+  else if (msg && r->conf->mode == LUMINA_AI_REMOTE && (strcasestr(msg, "api key") || strcasestr(msg, "unauthorized")))
+    err = g_strdup("Le service refuse la clé d'accès. Vérifiez-la (Réglages › Lumi).");
+  else if (msg && r->conf->mode == LUMINA_AI_REMOTE && strcasestr(msg, "model") &&
+           (strcasestr(msg, "does not exist") || strcasestr(msg, "not found")))
+    err = g_strdup_printf("Le service ne connaît pas le modèle « %s ». Vérifiez son nom (Réglages › Lumi).", r->conf->remote_model);
   else if (msg) err = g_strdup_printf("Lumi n'a pas pu répondre : %s", msg);
   else if (timeout && r->conf->mode == LUMINA_AI_LOCAL)
     err = g_strdup_printf("Lumi a mis trop de temps à répondre : ce PC est peut-être trop lent pour %s. %s",
@@ -317,8 +335,7 @@ static void start_curl(Req *r) {
     if (fd >= 0) { fchmod(fd, 0600); if (write(fd, line, strlen(line)) < 0) {} close(fd); }
     g_ptr_array_add(a, g_strdup("-H"));
     g_ptr_array_add(a, g_strdup_printf("@%s", h));
-    char *base = g_strdup(r->conf->remote_url);
-    while (*base && base[strlen(base) - 1] == '/') base[strlen(base) - 1] = 0;
+    char *base = lumina_ai_url_clean(r->conf->remote_url);
     g_ptr_array_add(a, g_strdup("--proto"));
     g_ptr_array_add(a, g_strdup("=https,http"));
     g_ptr_array_add(a, g_strdup_printf("%s/chat/completions", base));

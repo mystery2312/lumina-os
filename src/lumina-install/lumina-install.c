@@ -37,6 +37,7 @@ static const char *CSS =
   ".warn { background: #ffdad6; color: #410002; border-radius: 16px; padding: 14px 16px; }\n"
   ".tbtn { background: transparent; color: @pri; border-radius: 20px; padding: 10px 18px; font-weight: 500; }\n"
   ".tbtn:hover { background: alpha(@pri, 0.08); }\n"
+  ".tbtn.danger { color: @err; }\n"
   ".fbtn { background: @pri; color: @on_pri; border-radius: 20px; padding: 10px 22px; font-weight: 500; }\n"
   ".fbtn:disabled { background: alpha(@on, 0.12); color: alpha(@on, 0.38); }\n"
   ".fbtn.danger { background: #ba1a1a; color: #ffffff; }\n"
@@ -254,8 +255,54 @@ static void on_confirm_toggled(GtkToggleButton *b, gpointer d) {
   gtk_widget_set_sensitive(erase_btn, gtk_toggle_button_get_active(b));
 }
 
+/* A cote de Windows ? L'outil regarde le disque sans le modifier. */
+static gboolean install_beside, beside_bitlocker;
+static GtkWidget *how_box, *beside_l, *beside_warn, *beside_chk, *beside_btn, *win_hint;
+static guint64 beside_bytes;
+
+static void on_beside_chk(GtkToggleButton *b, gpointer d) {
+  gtk_widget_set_sensitive(beside_btn, !beside_bitlocker || gtk_toggle_button_get_active(b));
+}
+
+static void show_erase_confirm(void);
+static void on_how_beside(void) {
+  char *free_s = g_format_size(beside_bytes);
+  char *t = g_strdup_printf("LuminaOS utilisera les %s d'espace libre de « %s ». Windows et ses fichiers ne sont pas modifiés. "
+                            "Au démarrage du PC, LuminaOS s'ouvre et Windows reste disponible.", free_s, chosen->model);
+  gtk_label_set_text(GTK_LABEL(beside_l), t);
+  g_free(t); g_free(free_s);
+  gtk_widget_set_visible(beside_warn, beside_bitlocker);
+  gtk_widget_set_visible(beside_chk, beside_bitlocker);
+  gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(beside_chk), FALSE);
+  gtk_widget_set_sensitive(beside_btn, !beside_bitlocker);
+  install_beside = TRUE;
+  go("beside");
+}
+static void on_how_erase(void) { show_erase_confirm(); }
+
 static void on_next(void) {
   if (!chosen) return;
+  install_beside = FALSE;
+  char *out = NULL;
+  const char *argv[] = {"pkexec", "/usr/local/sbin/lumina-install-disk", "--check-beside", chosen->path, NULL};
+  g_spawn_sync(NULL, (char **)argv, NULL, G_SPAWN_SEARCH_PATH | G_SPAWN_STDERR_TO_DEV_NULL, NULL, NULL, &out, NULL, NULL, NULL);
+  gboolean ok = out && g_str_has_prefix(out, "OK ");
+  gboolean found_windows = out && g_str_has_prefix(out, "NO ") && (strstr(out, "Espace libre") || strstr(out, "EFI de Windows"));
+  if (ok) {
+    beside_bytes = g_ascii_strtoull(out + 3, NULL, 10);
+    beside_bitlocker = strstr(out, "BITLOCKER") != NULL;
+    g_free(out);
+    gtk_widget_hide(win_hint);
+    go("how");
+    return;
+  }
+  /* Windows present mais pas de place : on l'explique avant d'effacer */
+  gtk_widget_set_visible(win_hint, found_windows);
+  g_free(out);
+  show_erase_confirm();
+}
+
+static void show_erase_confirm(void) {
   char *size = g_format_size(chosen->size);
   char *t = g_strdup_printf("Tout le contenu de « %s » (%s, %s) sera effacé définitivement :\n%s",
                             chosen->model, chosen->path, size, chosen->contents);
@@ -379,7 +426,9 @@ static void on_erase(void) {
   gtk_window_set_deletable(GTK_WINDOW(win), FALSE);   /* on ne ferme pas en pleine ecriture */
   go("progress");
 
-  const char *argv[] = {"pkexec", "/usr/local/sbin/lumina-install-disk", chosen->path, NULL};
+  const char *argv_all[] = {"pkexec", "/usr/local/sbin/lumina-install-disk", chosen->path, NULL};
+  const char *argv_beside[] = {"pkexec", "/usr/local/sbin/lumina-install-disk", "--beside", chosen->path, NULL};
+  const char *const *argv = install_beside ? argv_beside : argv_all;
   GError *err = NULL;
   child_exited = FALSE;
   if (!g_spawn_async(NULL, (char **)argv, NULL, G_SPAWN_SEARCH_PATH | G_SPAWN_DO_NOT_REAP_CHILD |
@@ -433,7 +482,7 @@ static void build(void) {
   /* Choix du disque */
   p = page();
   gtk_container_add(GTK_CONTAINER(p), text("Choisissez le disque", "title"));
-  gtk_container_add(GTK_CONTAINER(p), text("LuminaOS occupera tout le disque choisi. La clé de démarrage "
+  gtk_container_add(GTK_CONTAINER(p), text("Si Windows est sur ce disque, vous pourrez le garder. La clé de démarrage "
                                            "n'apparaît pas dans la liste.", "text"));
   GtkWidget *sc = gtk_scrolled_window_new(NULL, NULL);
   gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(sc), GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
@@ -449,6 +498,48 @@ static void build(void) {
   gtk_container_add(GTK_CONTAINER(p), bb);
   gtk_stack_add_named(GTK_STACK(stack), p, "disks");
 
+  /* Windows est la : a cote, ou tout effacer */
+  p = page();
+  gtk_container_add(GTK_CONTAINER(p), hero("disk", FALSE, NULL));
+  gtk_container_add(GTK_CONTAINER(p), text("Windows est installé sur ce disque", "title"));
+  gtk_container_add(GTK_CONTAINER(p), text("Comment installer LuminaOS ?", "text"));
+  how_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 8);
+  GtkWidget *hb1 = btn("À côté de Windows (conseillé)", "fbtn", G_CALLBACK(on_how_beside));
+  gtk_container_add(GTK_CONTAINER(how_box), hb1);
+  GtkWidget *hb2 = btn("Effacer Windows et tout le disque", "tbtn", G_CALLBACK(on_how_erase));
+  add_class(hb2, "danger");
+  gtk_container_add(GTK_CONTAINER(how_box), hb2);
+  gtk_container_add(GTK_CONTAINER(p), how_box);
+  GtkWidget *hbb = buttons();
+  gtk_container_add(GTK_CONTAINER(hbb), btn("Retour", "tbtn", G_CALLBACK(on_back_disks)));
+  gtk_container_add(GTK_CONTAINER(p), hbb);
+  gtk_stack_add_named(GTK_STACK(stack), p, "how");
+
+  /* Confirmation : a cote de Windows */
+  p = page();
+  gtk_container_add(GTK_CONTAINER(p), hero("disk", FALSE, NULL));
+  gtk_container_add(GTK_CONTAINER(p), text("Installer à côté de Windows ?", "title"));
+  beside_l = text("", "text");
+  gtk_container_add(GTK_CONTAINER(p), beside_l);
+  beside_warn = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
+  add_class(beside_warn, "warn");
+  gtk_container_add(GTK_CONTAINER(beside_warn),
+                    text("Ce Windows est chiffré par BitLocker. Notez d'abord sa clé de récupération (aka.ms/myrecoverykey, depuis un autre appareil) : "
+                         "sans elle, Windows pourrait rester inaccessible si le PC la demande. Pour ouvrir Windows, utilisez ensuite « Redémarrer sous Windows » dans LuminaOS.", NULL));
+  gtk_container_add(GTK_CONTAINER(p), beside_warn);
+  beside_chk = gtk_check_button_new_with_label("J'ai noté ma clé de récupération BitLocker");
+  g_signal_connect(beside_chk, "toggled", G_CALLBACK(on_beside_chk), NULL);
+  gtk_container_add(GTK_CONTAINER(p), beside_chk);
+  gtk_widget_show_all(beside_warn);     /* d'abord le contenu : show_all ignore ensuite ce bloc */
+  gtk_widget_set_no_show_all(beside_warn, TRUE);
+  gtk_widget_set_no_show_all(beside_chk, TRUE);
+  GtkWidget *bbb = buttons();
+  gtk_container_add(GTK_CONTAINER(bbb), btn("Retour", "tbtn", G_CALLBACK(on_back_disks)));
+  beside_btn = btn("Installer", "fbtn", G_CALLBACK(on_erase));
+  gtk_container_add(GTK_CONTAINER(bbb), beside_btn);
+  gtk_container_add(GTK_CONTAINER(p), bbb);
+  gtk_stack_add_named(GTK_STACK(stack), p, "beside");
+
   /* Confirmation */
   p = page();
   gtk_container_add(GTK_CONTAINER(p), hero("trash", TRUE, NULL));
@@ -458,6 +549,10 @@ static void build(void) {
   confirm_l = text("", NULL);
   gtk_container_add(GTK_CONTAINER(w), confirm_l);
   gtk_container_add(GTK_CONTAINER(p), w);
+  win_hint = text("Pour garder Windows, annulez : réduisez sa partition d'au moins 24 Go dans « Gestion des disques » sous Windows, "
+                  "puis relancez cette installation.", "text");
+  gtk_widget_set_no_show_all(win_hint, TRUE);
+  gtk_container_add(GTK_CONTAINER(p), win_hint);
   gtk_container_add(GTK_CONTAINER(p), text("Sauvegardez d'abord ce que vous voulez garder : "
                                            "l'opération est irréversible.", "text"));
   confirm_chk = gtk_check_button_new_with_label("J'ai compris que tout le contenu de ce disque sera perdu");
