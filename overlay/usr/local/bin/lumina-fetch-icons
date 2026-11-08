@@ -10,9 +10,18 @@
 DEST="$HOME/.local/share/icons/hicolor/128x128/apps"
 mkdir -p "$DEST"
 
-# Attendre le reseau (jusqu'a 10 min) sans rien consommer d'autre.
+# Rien a faire si toutes les icones sont la : aucune connexion.
+missing=0
+for f in /usr/local/share/applications/lumina-*.desktop; do
+  icon=$(sed -n 's/^Icon=\(lumina-.*\)$/\1/p' "$f")
+  grep -q '^Exec=lumina-webapp https://' "$f" || continue
+  [ -n "$icon" ] && [ ! -s "$DEST/$icon.png" ] && missing=1
+done
+[ "$missing" = 1 ] || exit 0
+
+# Attendre le reseau (jusqu'a 10 min), via le serveur des mises a jour.
 i=0
-until curl -fsS -o /dev/null --max-time 5 https://www.google.com/generate_204 2>/dev/null; do
+until curl -fsS -o /dev/null --max-time 5 https://github.com/ 2>/dev/null; do
   i=$((i + 1)); [ "$i" -gt 60 ] && exit 0
   sleep 10
 done
@@ -25,13 +34,15 @@ for f in /usr/local/share/applications/lumina-*.desktop; do
   [ -s "$DEST/$icon.png" ] && continue
   # Adresse officielle de l'icone si l'entree la donne (produits Google :
   # leur favicon renvoie le "G" generique tant qu'on n'est pas connecte),
-  # sinon le service de favicons, qui renvoie l'icone declaree par le site.
+  # sinon l'icone du site lui-meme : aucun service tiers ne voit la liste.
   src=$(sed -n 's/^X-Lumina-IconUrl=//p' "$f")
   if [ -z "$src" ]; then
     host=$(echo "$url" | sed 's|https://\([^/]*\).*|\1|')
-    src="https://www.google.com/s2/favicons?domain=$host&sz=128"
+    src="https://$host/apple-touch-icon.png"
   fi
-  if curl -fsSL --max-time 15 -o "$DEST/$icon.png.tmp" "$src"; then
+  # Vraie image PNG seulement (un site peut repondre par une page d'erreur)
+  if curl -fsSL --max-time 15 -o "$DEST/$icon.png.tmp" "$src" \
+     && [ "$(head -c 4 "$DEST/$icon.png.tmp" | tail -c 3)" = PNG ]; then
     mv "$DEST/$icon.png.tmp" "$DEST/$icon.png"; new=1
   else
     rm -f "$DEST/$icon.png.tmp"

@@ -24,6 +24,7 @@ ram_mb() { awk '/^MemTotal:/ { print int($2 / 1024) }' /proc/meminfo; }
 
 if [ "${1:-}" = "--install" ]; then
   [ "$(id -u)" = 0 ] || { echo "A lancer avec sudo." >&2; exit 1; }
+  [ "${PKEXEC_UID:-0}" != 1500 ] || { echo "Indisponible en mode invite." >&2; exit 1; }
   if [ "$(ram_mb)" -lt "$MIN_RAM_MB" ]; then
     echo "Apps Android indisponibles : cette machine a $(ram_mb) Mo de RAM," >&2
     echo "il en faut au moins 4 Go. Android y ralentirait tout le systeme." >&2

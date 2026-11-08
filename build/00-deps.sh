@@ -12,6 +12,10 @@ PKGS=(
   qemu-system-x86 qemu-utils ovmf
   zstd xz-utils
   libsqlite3-dev      # lumina-index
+  pkg-config libgtk-3-dev libgtk-layer-shell-dev   # applis GTK de src/
+  libwayland-dev libwayland-bin libgtksourceview-4-dev
+  libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev
+  libarchive-tools socat python3
   cmake g++           # whisper.cpp (voix de Lumi)
 )
 echo "Installation : ${PKGS[*]}"

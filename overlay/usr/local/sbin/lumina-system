@@ -17,6 +17,14 @@ export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 C=/var/lib/lumina/config
 mkdir -p "$C"; chmod 755 "$C"
 REPO=https://github.com/mystery2312/lumina-os/releases
+# Reglages de la machine : le proprietaire seulement (pas un autre compte,
+# ni l'invite). Lance par un service systeme : root, autorise.
+owner_only() {
+  case "${PKEXEC_UID:-$(id -u)}" in 0|1000) ;;
+    *) echo "Seul le propriétaire de ce PC peut faire cela." >&2; exit 1 ;;
+  esac
+}
+case "${1:-}" in set-lid|set-channel|powerwash) owner_only ;; esac
 
 apply_lid() {
   local v=suspend

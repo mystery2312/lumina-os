@@ -16,6 +16,16 @@ CAT=/usr/share/lumina/ai-models.conf
 VOICE=/usr/share/lumina/ai-voice.conf
 D=/var/lib/lumina/ai
 
+# Pas de telechargement ni de suppression en session invite
+case "${1:-}" in
+  list|voice-status) ;;
+  *) [ "${PKEXEC_UID:-0}" != 1500 ] || { echo "Indisponible en mode invité." >&2; exit 1; } ;;
+esac
+# Dossier de root, pas un lien : on y ecrit en administrateur.
+check_dir() {
+  [ ! -L "$1" ] && [ "$(stat -c %u "$1")" = 0 ] || { echo "Dossier de modèles invalide." >&2; exit 1; }
+}
+
 entry() {   # entry <id> -> ligne du catalogue
   grep -vE '^\s*(#|$)' "$CAT" | awk -F'|' -v id="$1" '$1 == id' | head -1
 }
@@ -32,7 +42,7 @@ case "${1:-}" in
     E=$(entry "${2:-}"); [ -n "$E" ] || { echo "Modèle inconnu." >&2; exit 2; }
     IFS='|' read -r id _ _ size sha url <<<"$E"
     mountpoint -q /var/lib/lumina || { echo "Partition d'état absente." >&2; exit 1; }
-    mkdir -p "$D"; chmod 755 "$D"
+    mkdir -p "$D"; check_dir "$D"; chmod 755 "$D"
     # Place libre : la taille du modele + 200 Mo de marge
     free=$(( $(df --output=avail -B1 "$D" | tail -1) ))
     [ "$free" -gt $(( size + 200 * 1048576 )) ] || { echo "Pas assez d'espace libre." >&2; exit 3; }
@@ -60,7 +70,7 @@ case "${1:-}" in
     ;;
   voice-install)
     mountpoint -q /var/lib/lumina || { echo "Partition d'état absente." >&2; exit 1; }
-    mkdir -p "$D/voice"; chmod 755 "$D" "$D/voice"
+    mkdir -p "$D/voice"; check_dir "$D"; check_dir "$D/voice"; chmod 755 "$D" "$D/voice"
     total=$(grep -vE '^\s*(#|$)' "$VOICE" | awk -F'|' '{ s += $2 } END { print s }')
     free=$(( $(df --output=avail -B1 "$D" | tail -1) ))
     [ "$free" -gt $(( total + 200 * 1048576 )) ] || { echo "Pas assez d'espace libre." >&2; exit 3; }

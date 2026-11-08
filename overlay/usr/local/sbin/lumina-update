@@ -20,7 +20,16 @@ set -euo pipefail
 export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
 . /etc/lumina/build.conf
-[ -r /var/lib/lumina/config/update.conf ] && . /var/lib/lumina/config/update.conf
+# Canal choisi : lu comme une donnee, jamais execute. La signature du
+# manifeste protege de toute facon le contenu de la mise a jour.
+UC=/var/lib/lumina/config/update.conf
+if [ -r "$UC" ]; then
+  u=$(sed -nE 's/^UPDATE_URL="?([^"]*)"?$/\1/p' "$UC" | head -1)
+  case "$u" in
+    *[!A-Za-z0-9:/._-]*) ;;
+    https://*|http://10.0.2.2*) UPDATE_URL=$u ;;   # 10.0.2.2 : essais en VM
+  esac
+fi
 
 S=/run/lumina-update
 mkdir -p "$S"; chmod 755 "$S"

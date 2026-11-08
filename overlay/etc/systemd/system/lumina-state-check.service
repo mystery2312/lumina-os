@@ -1,0 +1,10 @@
+[Unit]
+Description=Verification de la partition d'etat LuminaOS
+Wants=var-lib-lumina.mount
+After=var-lib-lumina.mount
+Before=greetd.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/sbin/lumina-state-check

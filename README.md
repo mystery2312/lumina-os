@@ -231,7 +231,8 @@ p3  ROOT-B  3072 Mo  ext4    cible des mises à jour A/B
 p4  STATE   le reste ext4    /var/lib/lumina : profil, réglages, données
 ```
 
-L'image pour clé USB ne contient que p5, p1, p2 et un petit p4 (3,4 Go à
+Ces tailles sont celles de l'image ; l'installation sur disque utilise
+ESP 512 Mo et ROOT 4 Go. L'image pour clé USB ne contient que p5, p1, p2 et un petit p4 (3,4 Go à
 écrire au lieu de toute la clé). Au premier démarrage, `lumina-grow` crée
 ROOT-B à la fin de la clé et agrandit STATE jusqu'à elle.
 

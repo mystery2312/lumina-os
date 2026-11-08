@@ -14,6 +14,12 @@ for _ in $(seq 60); do
   sleep 1
 done
 mountpoint -q /var/lib/lumina || { echo "partition d'etat absente" >&2; exit 1; }
+# Racine, config/ et ai/ : a root. Filet si tmpfiles n'a pas pu s'en charger
+# (installations plus anciennes, ou un lien pose a la place d'un dossier).
+for d in config ai; do [ -L "/var/lib/lumina/$d" ] && rm -f "/var/lib/lumina/$d"; done
+chown root:root /var/lib/lumina; chmod 755 /var/lib/lumina
+for d in config ai; do [ -d "/var/lib/lumina/$d" ] && chown root:root "/var/lib/lumina/$d"; done
+[ -d /var/lib/lumina/browser ] || install -d -o lumina -g lumina -m 700 /var/lib/lumina/browser
 DATA=/var/lib/lumina/home
 H=/home/lumina
 

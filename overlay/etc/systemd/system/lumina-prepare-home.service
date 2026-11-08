@@ -9,5 +9,5 @@ Before=greetd.service
 [Service]
 Type=oneshot
 RemainAfterExit=yes
-ExecStartPre=/usr/bin/systemd-tmpfiles --create /etc/tmpfiles.d/lumina.conf
+ExecStartPre=-/usr/bin/systemd-tmpfiles --create /etc/tmpfiles.d/lumina.conf
 ExecStart=/usr/local/sbin/lumina-prepare-home

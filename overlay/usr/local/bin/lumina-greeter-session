@@ -1,7 +1,11 @@
 #!/bin/sh
 # Ecran de connexion (lance par greetd, compte _greetd) : un labwc minimal
 # qui n'affiche que lumina-greeter, et s'arrete avec lui.
-[ -r /var/lib/lumina/config/greeter.conf ] && . /var/lib/lumina/config/greeter.conf
+# Reglages du proprietaire : lus comme des donnees, jamais executes.
+gv() { sed -n "s/^$1=\([A-Za-z0-9_-]*\)\$/\1/p" /var/lib/lumina/config/greeter.conf 2>/dev/null | head -1; }
+LUMINA_KEYMAP=$(gv LUMINA_KEYMAP)
+LUMINA_KEYMAP_VARIANT=$(gv LUMINA_KEYMAP_VARIANT)
+LUMINA_LANG=$(gv LUMINA_LANG)
 export XKB_DEFAULT_LAYOUT="${LUMINA_KEYMAP:-fr}"
 export XKB_DEFAULT_VARIANT="${LUMINA_KEYMAP_VARIANT:-}"
 case "${LUMINA_LANG:-fr}" in fr*) export LANG=fr_FR.UTF-8 ;; *) export LANG=en_US.UTF-8 ;; esac

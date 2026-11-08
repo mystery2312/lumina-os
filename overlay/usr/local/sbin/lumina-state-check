@@ -1,0 +1,20 @@
+#!/bin/sh
+# Avant l'ecran de connexion : la partition d'etat est-elle montee ? Sinon,
+# message clair et pas de session (elle ecrirait sur la partition systeme,
+# et tout serait perdu a la mise a jour suivante).
+# Un disque plein n'est PAS un echec : il faut pouvoir se connecter pour
+# faire de la place.
+for _ in $(seq 60); do
+  mountpoint -q /var/lib/lumina && exit 0
+  systemctl start var-lib-lumina.mount 2>/dev/null || true
+  sleep 1
+done
+plymouth quit 2>/dev/null || true
+{
+  printf '\033[2J\033[H\n\n'
+  printf '  LuminaOS ne trouve pas sa partition de donnees.\n\n'
+  printf '  Vos fichiers sont peut-etre encore intacts : rien n a ete efface.\n'
+  printf '  Eteignez le PC, verifiez le disque ou la cle USB, puis redemarrez.\n\n'
+} > /dev/tty1 2>/dev/null
+echo "partition d'etat absente" >&2
+exit 1

@@ -23,8 +23,17 @@ NAME=$C/name               # 0644 : nom affiche
 ACC=$C/account.conf        # 0644 : CONFIGURED=0|1, HAS_PASSWORD=0|1
 
 mkdir -p "$C"; chmod 755 "$C"
-CONFIGURED=0; HAS_PASSWORD=0
-[ -r "$ACC" ] && . "$ACC"
+# Lu comme une donnee, jamais execute (ce script tourne en root)
+flag() { [ -r "$ACC" ] || return 0; sed -n "s/^$1=\([01]\)\$/\1/p" "$ACC" | head -1; }
+CONFIGURED=$(flag CONFIGURED); CONFIGURED=${CONFIGURED:-0}
+HAS_PASSWORD=$(flag HAS_PASSWORD); HAS_PASSWORD=${HAS_PASSWORD:-0}
+# Le compte principal n'appartient qu'a son proprietaire
+case "${1:-}" in
+  set-name|set-password|finish)
+    case "${PKEXEC_UID:-$(id -u)}" in 0|1000) ;;
+      *) echo "Seul le propriétaire de ce PC peut faire cela." >&2; exit 1 ;;
+    esac ;;
+esac
 save() {
   printf 'CONFIGURED=%s\nHAS_PASSWORD=%s\n' "$CONFIGURED" "$HAS_PASSWORD" > "$ACC.tmp"
   chmod 644 "$ACC.tmp"; mv "$ACC.tmp" "$ACC"

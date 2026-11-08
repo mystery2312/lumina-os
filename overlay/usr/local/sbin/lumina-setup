@@ -41,7 +41,6 @@ fi
 sed -i -E 's/^# *(fr_FR.UTF-8|en_US.UTF-8) UTF-8/\1 UTF-8/' /etc/locale.gen
 locale-gen >/dev/null
 
-systemctl set-default graphical.target
 # Ecran de connexion (greetd) : il lance la session LuminaOS, directement
 # tant que le proprietaire est seul, sinon apres le choix d'un compte.
 

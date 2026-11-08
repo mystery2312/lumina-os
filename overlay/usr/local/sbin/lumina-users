@@ -73,7 +73,9 @@ greeter_config() {
   guest=$([ -e "$C/guest" ] && echo 1 || echo 0)
   [ "$others" -gt 0 ] && auto=0
   [ "$guest" = 1 ] && auto=0
-  CONFIGURED=0; [ -r "$C/account.conf" ] && . "$C/account.conf"
+  # Lu comme une donnee, jamais execute (ce script tourne en root)
+  local CONFIGURED
+  CONFIGURED=$(sed -n 's/^CONFIGURED=\([01]\)$/\1/p' "$C/account.conf" 2>/dev/null | head -1 || true)
   [ "${CONFIGURED:-0}" != 1 ] && auto=1
   lumina-is-live && auto=1
   mkdir -p /etc/greetd
@@ -92,7 +94,8 @@ greeter_config() {
   } > /etc/greetd/config.toml
   # Clavier et langue de l'ecran de connexion : ceux du proprietaire
   local sc=/home/lumina/.config/lumina/session.conf
-  { grep -E '^LUMINA_(KEYMAP|KEYMAP_VARIANT|LANG)=' "$sc" 2>/dev/null || true; } > "$C/greeter.conf"
+  # (fichier de l'utilisateur : seules des valeurs simples sont reprises)
+  sed -nE 's/^(LUMINA_(KEYMAP|KEYMAP_VARIANT|LANG))=([A-Za-z0-9_-]*)$/\1=\3/p' "$sc" 2>/dev/null > "$C/greeter.conf" || true
   chmod 644 "$C/greeter.conf"
 }
 
@@ -140,7 +143,11 @@ case "${1:-}" in
   remove)
     owner_only
     u="${2:-}"
-    [ -n "$u" ] && [ -d "$R/$u" ] || { echo "Compte inconnu." >&2; exit 1; }
+    # Un identifiant cree par « add », rien d'autre : ni chemin, ni motif
+    case "$u" in
+      ""|lumina|root|"$GUEST"|*[!a-z0-9]*) echo "Compte inconnu." >&2; exit 1 ;;
+    esac
+    [ -d "$R/$u" ] || { echo "Compte inconnu." >&2; exit 1; }
     loginctl terminate-user "$u" 2>/dev/null || true
     sleep 1
     mountpoint -q "/home/$u" && umount "/home/$u" || true

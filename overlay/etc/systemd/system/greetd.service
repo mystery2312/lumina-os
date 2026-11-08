@@ -7,6 +7,10 @@
 Description=Ecran de connexion LuminaOS (greetd)
 Wants=seatd.service var-lib-lumina.mount lumina-prepare-home.service lumina-account.service
 After=seatd.service var-lib-lumina.mount lumina-prepare-home.service lumina-account.service plymouth-start.service
+# Sans partition d'etat, pas de session : elle ecrirait sur la partition
+# systeme, et tout serait perdu a la mise a jour suivante.
+Requires=lumina-state-check.service
+After=lumina-state-check.service
 Conflicts=plymouth-quit.service getty@tty1.service
 After=plymouth-quit.service getty@tty1.service
 OnFailure=plymouth-quit.service
